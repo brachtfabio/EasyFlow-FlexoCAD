@@ -26,7 +26,10 @@ const Texture = (() => {
     // o pdf.js desenha também em telas auxiliares (transparências), então o filtro vai no protótipo durante a renderização
     const proto = CanvasRenderingContext2D.prototype, saved = {};
     for (const fn of ['stroke', 'strokeRect', 'strokeText']) { const o = saved[fn] = proto[fn]; proto[fn] = function (...a) { if (hidS(this.strokeStyle)) return; return o.apply(this, a); }; }
-    for (const fn of ['fill', 'fillText', 'fillRect']) { const o = saved[fn] = proto[fn]; proto[fn] = function (...a) { if (hidF(this.fillStyle)) return; return o.apply(this, a); }; }
+    const ht = [...(hide.text || [])];
+    const hidT = s => { const x = hexOf(s); return x && ht.some(c => near(x, c)); };
+    for (const fn of ['fill', 'fillRect']) { const o = saved[fn] = proto[fn]; proto[fn] = function (...a) { if (hidF(this.fillStyle)) return; return o.apply(this, a); }; }
+    { const o = saved.fillText = proto.fillText; proto.fillText = function (...a) { if (hidF(this.fillStyle) || hidT(this.fillStyle)) return; return o.apply(this, a); }; }
     try {
       const vp = page.getViewport({ scale, offsetX: -region.x0 * scale, offsetY: -region.y0 * scale });
       await page.render({ canvasContext: ctx, viewport: vp, background: 'rgb(255,255,255)' }).promise;
@@ -36,7 +39,7 @@ const Texture = (() => {
 
   // kraft liso (ficha técnica sem arte), com marcas de picote e cortes soltos
   function kraft(model, maxSize) {
-    const ar = model.W / model.H;
+    const ar = (model.W0 || model.W) / (model.H0 || model.H);
     const cv = document.createElement('canvas');
     cv.width = Math.round(ar >= 1 ? maxSize : maxSize * ar); cv.height = Math.round(ar >= 1 ? maxSize / ar : maxSize);
     const ctx = cv.getContext('2d');

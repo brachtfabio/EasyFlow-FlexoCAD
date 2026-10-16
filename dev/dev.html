@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#e4e1d8}#st{position:absolute;inset:0}canvas{width:100%;height:100%;display:block}#info{position:absolute;left:8px;top:8px;font:13px monospace;background:#fff8;padding:4px}</style></head>
+<body><div id="st"><canvas id="c"></canvas></div><div id="info"></div><input type="file" id="file" style="position:absolute;right:8px;top:8px">
+<script src="../node_modules/three/build/three.min.js"></script>
+<script src="../node_modules/three/examples/js/controls/OrbitControls.js"></script>
+<script src="../node_modules/pdfjs-dist/build/pdf.min.js"></script>
+<script src="../node_modules/pdfjs-dist/build/pdf.worker.min.js"></script>
+<script src="../src/pdfvec.js"></script><script src="../src/dieline.js"></script><script src="../src/sheet.js"></script>
+<script src="../src/fold.js"></script><script src="../src/styles.js"></script><script src="../src/texture.js"></script><script src="../src/outline.js"></script><script src="../src/viewer.js"></script>
+<script>
+const V = Viewer.create(document.getElementById('c'), { preserve: true });
+window.loadPdf = async (buf) => {
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const page = await doc.getPage(1);
+  const vec = await PDFVec.read(pdfjsLib, page);
+  const sh = Sheet.analyze(vec);
+  const { model, recipe } = Styles.auto(sh, { piece: window.PIECE || 0 });
+  let art = null;
+  if (sh.kind !== 'tecnica') {
+    const strokeHide = new Set(sh.outlined ? [] : [sh.dieline.color]); const fillHide = new Set(sh.outlined ? [sh.dieline.color] : []);
+    vec.paths.forEach(p => { if (p.stroke && Texture.isAnnotation(p.stroke)) strokeHide.add(p.stroke); if (p.fill && Texture.isAnnotation(p.fill)) fillHide.add(p.fill); });
+    art = Texture.overlayCuts(await Texture.renderArt(page, sh.dieline.bbox, { stroke: strokeHide, fill: fillHide }, 4096), model);
+  } else art = Texture.kraft(model, 2048);
+  window.__sh = sh; window.__art = art;
+  V.setBox({ model, recipe, art });
+  V.frame('iso', true);
+  document.getElementById('info').textContent = recipe.label + ' | ' + sh.kind + ' | ' + sh.scaleSource;
+  window.ready = true;
+};
+document.getElementById('file').onchange = async e => { window.ready = false; await loadPdf(new Uint8Array(await e.target.files[0].arrayBuffer())); };
+window.setT = T => V.setT(T);
+window.view = n => V.frame(n, true);
+</script></body></html>

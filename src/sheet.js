@@ -62,6 +62,8 @@ const Sheet = (() => {
       onda: field(texts, ['Onda:']),
       estilo: field(texts, ['Estilo:']),
       obs: field(texts, ['Obs.:']),
+      // fichas de outros fornecedores: a medida costuma vir solta no texto, ex. "400x235x180" ou "300x150x100-30"
+      medidaSolta: (texts.map(t => t.str).join(' ').match(/\b(\d{2,4})\s*[xX]\s*(\d{2,4})\s*[xX]\s*(\d{2,4})(?!\s*mm)/) || [])[0] || null,
       fornecedor: /trombini/.test(all) ? 'Trombini' : /flexograv/.test(all) ? 'Flexograv' : null,
     };
     let dl = null, err = null, outlined = false;
@@ -69,7 +71,8 @@ const Sheet = (() => {
     if (!dl || dl.hinges.length < 3) {
       // faca exportada como contorno preenchido
       const OL = typeof Outline !== 'undefined' ? Outline : require('./outline');
-      for (const v2 of OL.convert(vec)) {
+      for (const v2 of OL.convert(vec).slice(0, 2)) {
+        if (dl && dl._sc > 0 && dl.hinges.length >= 3) break;
         for (const k of [1, 1.8, 2.6]) {
           try {
             const w = Math.max(...v2.paths.map(p => p.width));
@@ -81,6 +84,7 @@ const Sheet = (() => {
       }
     }
     if (!dl) throw err || new Error('Não encontrei a faca no PDF.');
+    if (!info.interna && info.medidaSolta) info.interna = info.medidaSolta;
     const bw = dl.bbox.x1 - dl.bbox.x0, bh = dl.bbox.y1 - dl.bbox.y0;
     let SX = null, SY = null, source = null;
     // 1) ficha de impressão: soma dos ajustes = largura e altura totais da chapa
@@ -102,6 +106,25 @@ const Sheet = (() => {
         if (err < 0.015 && (!best || h.v + v.v > best.h + best.v)) best = { h: h.v, v: v.v, sx, sy };
       }
       if (best) { SX = best.sx; SY = best.sy; source = 'cotas do desenho'; info.total = [best.h, best.v]; }
+    }
+    // ajuste com um número só (ex.: "1912") às vezes é a chapa inteira com várias caixas: confere com a medida interna
+    const scaleFromInterna = () => {
+      const mi = nums(info.interna);
+      if (mi.length !== 3) return null;
+      let best = null;
+      for (const p of dl.panels) {
+        let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+        for (const q of p.poly) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (i !== j) {
+          const sx = (x1 - x0) / mi[i], sy = (y1 - y0) / mi[j];
+          if (Math.abs(sx - sy) / sx < 0.04 && (!best || p.area > best.area)) best = { area: p.area, s: (sx + sy) / 2 };
+        }
+      }
+      return best ? best.s : null;
+    };
+    if (SX && imp.length === 1) {
+      const s2 = scaleFromInterna();
+      if (s2 && Math.abs(s2 - SX) / SX > 0.15) { SX = SY = s2; source = 'medidas internas'; }
     }
     // 3) medidas internas casadas com o maior painel de mesmas proporções
     if (!SX) {

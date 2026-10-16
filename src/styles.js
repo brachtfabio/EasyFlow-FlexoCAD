@@ -48,7 +48,7 @@ const Styles = (() => {
   function recipeRSC(model, det) {
     const F = model.faces, { panels, glue } = det;
     const pw = panels.map(f => F[f].w);
-    const longIdx = pw[0] + pw[2] > pw[1] + pw[3] ? [0, 2] : [1, 3];
+    const longIdx = panels.length === 2 ? [pw[0] >= pw[1] ? 0 : 1] : pw[0] + pw[2] > pw[1] + pw[3] ? [0, 2] : [1, 3];
     // frente = painel comprido que não encosta na aba de cola
     const adjGlue = f => glue != null && F[f].hinges.some(id => other(model.hinges[id], f) === glue);
     const root = panels[longIdx.find(i => !adjGlue(panels[i]))] ?? panels[longIdx[0]];
@@ -56,7 +56,7 @@ const Styles = (() => {
     const prog = {};
     const isBody = new Set(det.chain);
     const major = new Set(longIdx.map(i => panels[i]));
-    const notes = [];
+    const notes = new Set();
     for (const f of tr.order) {
       if (tr.parent[f] < 0) continue;
       const hid = tr.via[f], par = tr.parent[f], h = model.hinges[hid];
@@ -67,10 +67,21 @@ const Styles = (() => {
       const top = F[f].c[1] > F[a].c[1];
       const base = major.has(a) ? 3 : 2;
       if (lvl === 1) prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) };
-      else prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + lvl * 2 };
+      else {
+        const hp = model.hinges[tr.via[par]], diag = Math.abs(h.dir[0]) > 0.15 && Math.abs(h.dir[1]) > 0.15;
+        const parallel = Math.abs(h.dir[0] * hp.dir[0] + h.dir[1] * hp.dir[1]) > 0.9;
+        if (diag) prog[hid] = { angle: 180, stage: base + (top ? 2 : 0) - 0.5 };            // fundo automático: a dobra diagonal fica colada por baixo
+        else if (parallel && lvl === 2) prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + 1 };   // divisória: sobe por dentro da caixa
+        else if (parallel) prog[hid] = { angle: 0, stage: base + (top ? 2 : 0) + 1 };      // continuação da divisória (com as fendas de encaixe)
+        else prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + lvl * 2 };
+        if (parallel && !diag) notes.add('divisoria');
+      }
     }
     // fundo primeiro, tampa depois
-    return { style: 'rsc', label: 'Caixa maleta (FEFCO 0201)', root, orient: 'front', prog, notes };
+    const nl = [];
+    if (notes.has('divisoria')) nl.push('As abas de baixo com várias dobras foram montadas como divisória interna (sobem por dentro da caixa). Ajuste no editor se a montagem for diferente.');
+    const label = notes.has('divisoria') ? 'Caixa com divisória incorporada' : 'Caixa maleta (FEFCO 0201)';
+    return { style: notes.has('divisoria') ? 'rsc-divisoria' : 'rsc', label, root, orient: 'front', prog, notes: nl };
   }
 
   // ---------- caixa maleta com alça (abas superiores em cadeia, sem fundo de abas) ----------
@@ -132,7 +143,9 @@ const Styles = (() => {
       prog[tr.via[f]] = { angle: 90, stage: stage[f] };
     }
     const hasDouble = tr.order.some(f => tr.parent[f] >= 0 && rel(f) === 'par' && Math.min(F[f].w, F[f].h) < model.thickness * 4);
-    const hasLid = tr.order.some(f => tr.parent[f] >= 0 && rel(f) === 'par' && F[f].area > F[root].area * 0.5);
+    // tampa: painel ligado a uma parede, do tamanho do fundo (largura e profundidade parecidas)
+    const hasLid = tr.order.some(f => tr.parent[f] >= 0 && rel(f) === 'par' && F[f].area > F[root].area * 0.75 &&
+      Math.abs(Math.max(F[f].w, F[f].h) - Math.max(F[root].w, F[root].h)) < Math.max(F[root].w, F[root].h) * 0.12);
     const label = hasLid ? 'Cartucho de correio (tipo FEFCO 0427)' : hasDouble ? 'Bandeja com parede dupla' : 'Bandeja / montagem pelo fundo';
     return { style: hasLid ? 'cartucho' : 'bandeja', label, root, orient: 'base', prog, notes: [] };
   }
@@ -143,15 +156,56 @@ const Styles = (() => {
     return r;
   }
 
+  // ---------- meia caixa: a chapa tem só frente + lateral (+ cola); a caixa usa duas peças iguais ----------
+  function detectHalf(model) {
+    const chain = bodyChain(model), F = model.faces;
+    if (chain.length < 2 || chain.length > 3) return null;
+    const ws = chain.map(f => F[f].w), big = Math.max(...ws);
+    const glueI = ws.findIndex(w => w < big * 0.2);
+    const panels = chain.filter((f, i) => i !== glueI);
+    if (panels.length !== 2) return null;
+    // abas em cima e embaixo dos dois painéis
+    const tr = FoldM.tree(model, panels[0]);
+    const flapsOn = p => tr.order.filter(f => tr.parent[f] === p && !chain.includes(f)).length;
+    if (flapsOn(panels[0]) < 2 || flapsOn(panels[1]) < 2) return null;
+    return { chain, panels, glue: glueI >= 0 ? chain[glueI] : null };
+  }
+  function recipeHalf(model, det) {
+    const F = model.faces;
+    const r = recipeRSC(model, { ...det, panels: det.panels });
+    // frente = o painel mais largo; a cópia gira 180° em volta do eixo vertical no centro da caixa
+    const front = F[det.panels[0]].w >= F[det.panels[1]].w ? det.panels[0] : det.panels[1];
+    const side = front === det.panels[0] ? det.panels[1] : det.panels[0];
+    r.root = front;
+    const tr = FoldM.tree(model, front);
+    for (const f of tr.order) { if (tr.parent[f] < 0) continue; const hid = tr.via[f]; if (det.chain.includes(f) && det.chain.includes(tr.parent[f])) r.prog[hid] = { angle: 90, stage: 1 }; }
+    const fb = F[front].bbox, sideRight = F[side].c[0] > F[front].c[0];
+    r.copy = { L: F[front].w, W: F[side].w, x0: sideRight ? fb[0] : fb[2] - F[front].w, sideRight };
+    r.style = 'meia-caixa'; r.label = 'Caixa em duas metades (0201 dividida)';
+    r.notes = ['A chapa tem meia caixa; a outra metade igual foi colocada girada para completar a caixa.'];
+    return r;
+  }
+
   function detect(model) {
     const rsc = detectRSC(model);
     if (rsc) return detectMala(model, rsc) ? recipeMala(model, rsc) : recipeRSC(model, rsc);
+    const half = detectHalf(model);
+    if (half) return recipeHalf(model, half);
     // montagem pelo fundo: o maior painel tem vincos dos dois sentidos
     const F = model.faces, base = F.reduce((a, f) => f.area > F[a].area ? f.idx : a, 0);
     const hs = F[base].hinges.map(id => model.hinges[id]);
     if (hs.some(isHoriz) && hs.some(isVert)) return recipeTray(model, { root: base });
     return generic(model);
   }
-  return { detect, recipeRSC, recipeTray, generic, detectRSC };
+  // Monta o modelo e escolhe o estilo; se a faca estiver desenhada "em pé", tenta girada 90°.
+  function auto(sheet, opts = {}) {
+    let model = FoldM.buildModel(sheet, opts), recipe = detect(model);
+    if (opts.rot == null && !/^rsc|^mala|^meia/.test(recipe.style)) {
+      const m2 = FoldM.buildModel(sheet, { ...opts, rot: 1 }), r2 = detect(m2);
+      if (/^rsc|^mala/.test(r2.style)) { model = m2; recipe = r2; }
+    }
+    return { model, recipe };
+  }
+  return { detect, auto, recipeRSC, recipeTray, generic, detectRSC };
 })();
 if (typeof module !== 'undefined') module.exports = Styles;

@@ -46,7 +46,7 @@ const Outline = (() => {
     });
     const cands = [...byColor.values()].filter(g => !/^#f[0-9a-f]f[0-9a-f]f/.test(g.color) && g.items.length > 10).sort((a, b) => b.len - a.len);
     const results = [];
-    for (const g of cands.slice(0, 3)) {
+    for (const g of cands.slice(0, 4)) {
       const th = g.th.sort((a, b) => a - b)[g.th.length >> 1];
       // espessura típica da linha: descarta formas grossas demais para serem linha
       const items = g.items.filter(it => it.th < th * 2.2);
@@ -76,8 +76,15 @@ const Outline = (() => {
         const isDash = straight && Ls[i] < short;
         paths.push({ stroke: g.color, fill: null, width: th, dash: isDash ? [-1] : [], subs: [{ pts: l.pts, closed: false }], curved: !straight, synthetic: true, dashPiece: isDash });
       });
-      results.push({ color: g.color, paths: joinDashes(paths, th) });
+      const joined = joinDashes(paths, th);
+      // uma faca tem vincos: conta as linhas tracejadas reconstruídas e descarta cores sem nenhuma
+      const creases = joined.filter(p => p.dash && p.dash.length).length;
+      if (creases >= 2) results.push({ color: g.color, paths: joined, creases });
     }
+    // a faca costuma ser o desenho mais simples com vincos longos: tenta primeiro os de menos peças
+    const diag = Math.hypot(vec.width, vec.height);
+    results.forEach(r => { r.longCreases = r.paths.filter(p => p.dash && p.dash.length && Math.hypot(p.subs[0].pts[1][0] - p.subs[0].pts[0][0], p.subs[0].pts[1][1] - p.subs[0].pts[0][1]) > diag * 0.04).length; });
+    results.sort((a, b) => (b.longCreases >= 3) - (a.longCreases >= 3) || a.paths.length - b.paths.length);
     return results.map(r => ({ width: vec.width, height: vec.height, texts: vec.texts, paths: r.paths, synthetic: true, color: r.color }));
   }
 

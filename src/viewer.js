@@ -83,7 +83,13 @@ const Viewer = (() => {
       });
       world.rotation.set(recipe.orient === 'base' ? Math.PI / 2 : 0, 0, 0);
       world.updateMatrix();
-      S = { model, recipe, tr, offsets, objs, T: 1 };
+      S = { model, recipe, tr, offsets, objs, T: 1, copies: null };
+      // meia caixa: a segunda metade é a mesma peça girada 180° em volta do eixo vertical do centro da caixa
+      if (recipe.copy) {
+        const c = recipe.copy, cx = c.sideRight ? c.x0 + c.L / 2 : c.x0 + c.L / 2, cz = -c.W / 2;
+        S.copyM = new THREE.Matrix4().makeTranslation(cx, 0, cz).multiply(new THREE.Matrix4().makeRotationY(Math.PI)).multiply(new THREE.Matrix4().makeTranslation(-cx, 0, -cz));
+        S.copies = objs.map(o => { if (!o) return null; const m = new THREE.Mesh(o.geometry, o.material); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; m.userData.face = o.userData.face; m.userData.copy = true; world.add(m); return m; });
+      }
       // centros do desenho aberto e da caixa montada (para deslizar suavemente durante a dobra)
       S.c0 = bounds(0); S.c1 = bounds(1);
       const span = Math.max(S.c0.size.x, S.c0.size.z, S.c1.size.x, S.c1.size.y, S.c1.size.z);
@@ -97,15 +103,19 @@ const Viewer = (() => {
     function clear() {
       if (!S) return;
       S.objs.forEach(o => { if (o) { world.remove(o); o.geometry.dispose(); } });
+      if (S.copies) S.copies.forEach(o => { if (o) world.remove(o); });
       if (artTex) { artTex.dispose(); artTex = null; }
       if (printMat) printMat.dispose();
       S = null;
     }
     const tmpV = new THREE.Vector3();
+    // a segunda metade aparece quando as paredes já estão em pé
+    const copyOn = T => T >= 1 / Math.max(1, Fold.timeline(S.recipe.prog).stages.length) - 1e-6;
     function bounds(T) {
       const { M } = Fold.poses(S.model, S.tr, S.recipe.prog, T, S.offsets);
       const box = new THREE.Box3(), R = world.matrix;
       S.model.faces.forEach((F, f) => { if (!M[f]) return; for (const p of F.poly) box.expandByPoint(tmpV.set(p[0], p[1], 0).applyMatrix4(M[f]).applyMatrix4(R)); });
+      if (S.copies && copyOn(T)) S.model.faces.forEach((F, f) => { if (!M[f]) return; for (const p of F.poly) box.expandByPoint(tmpV.set(p[0], p[1], 0).applyMatrix4(M[f]).applyMatrix4(S.copyM).applyMatrix4(R)); });
       return { box, center: box.getCenter(new THREE.Vector3()), size: box.getSize(new THREE.Vector3()) };
     }
     function setT(T) {
@@ -113,6 +123,7 @@ const Viewer = (() => {
       S.T = T;
       const { M } = Fold.poses(S.model, S.tr, S.recipe.prog, T, S.offsets);
       S.objs.forEach((o, f) => { if (o) { o.matrix.copy(M[f]); o.matrixWorldNeedsUpdate = true; } });
+      if (S.copies) { const on = copyOn(T); S.copies.forEach((o, f) => { if (!o) return; o.visible = on; o.matrix.multiplyMatrices(S.copyM, M[f]); o.matrixWorldNeedsUpdate = true; }); }
       const b = bounds(T);
       const e = Fold.ease(T);
       lift.position.set(-THREE.MathUtils.lerp(S.c0.center.x, S.c1.center.x, e), -b.box.min.y + 0.5, -THREE.MathUtils.lerp(S.c0.center.z, S.c1.center.z, e));

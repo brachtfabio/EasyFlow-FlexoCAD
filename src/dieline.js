@@ -272,24 +272,90 @@ const Dieline = (() => {
     const pageDiag = Math.hypot(vec.width, vec.height);
     const all = pens(vec);
     // descarta canetas de moldura/carimbo: traço contínuo cobrindo quase a página toda
-    const frameLike = g => g.kind === CUT && (g.x1 - g.x0) > vec.width * 0.8 && (g.y1 - g.y0) > vec.height * 0.8;
+    // moldura da folha: retângulos simples cobrindo quase a página toda
+    const frameLike = g => g.kind === CUT && (g.x1 - g.x0) > vec.width * 0.8 && (g.y1 - g.y0) > vec.height * 0.8 &&
+      g.paths.every(pi => vec.paths[pi].subs.every(sp => sp.pts.length <= 5));
     // canetas candidatas por cor
     const byColor = new Map();
     for (const g of all) { if (frameLike(g)) continue; let c = byColor.get(g.color); if (!c) byColor.set(g.color, c = []); c.push(g); }
     const results = [];
+    // Variantes de leitura (cada fornecedor marca o vinco de um jeito):
+    //  1) vinco tracejado e corte contínuo, na mesma cor (Trombini, Flexograv, fichas técnicas)
+    //  2) só traço-ponto na cor: o traço-ponto é o vinco (exportações tipo ArtiosCAD)
+    //  3) mesma cor, linhas contínuas: a mais fina é o vinco
+    //  4) cores diferentes: uma cor é o corte e a outra, contínua, é o vinco (ex.: preto = corte, vermelho = vinco)
+    const variants = [];
+    const as = (g, kind) => ({ ...g, kind });
+    const lenOf = gs => gs.reduce((s, g) => s + g.length, 0);
     for (const [color, gs] of byColor) {
       const hasCrease = gs.some(g => g.kind === CREASE && g.length > pageDiag * 0.05);
-      // espessuras usadas pelos vincos: os cortes da faca usam espessura igual ou maior
-      const creaseW = gs.filter(g => g.kind === CREASE).map(g => g.width);
-      const minW = creaseW.length ? Math.min(...creaseW) * 0.7 : 0;
-      const use = gs.filter(g => g.width >= minW);
-      if (!use.length) continue;
-      try {
-        const r = build(vec, use, hasCrease, opts);
-        r.color = color; results.push(r);
-      } catch (e) { results.push({ color, error: e.message }); }
+      const hasPerf = gs.some(g => g.kind === PERF && g.length > pageDiag * 0.05);
+      let groups = gs;
+      if (!hasCrease && hasPerf) groups = gs.map(g => g.kind === PERF ? as(g, CREASE) : g);
+      const creaseW = groups.filter(g => g.kind === CREASE).map(g => g.width);
+      // linhas bem mais finas que o vinco são cotas e anotações
+      const minW = creaseW.length ? Math.min(...creaseW) * 0.5 : 0;
+      // corte: a caneta contínua mais usada; contínuas bem mais finas que ela são cotas, moldura e anotações
+      // (escolhe a caneta em que as pontas dos vincos encostam: cota, moldura e "perfil" não encostam nos vincos)
+      const cr = groups.filter(g => g.kind === CREASE);
+      const ends = [];
+      for (const g of cr) for (const pi of g.paths) for (const sp of vec.paths[pi].subs) if (sp.pts.length > 1) ends.push(sp.pts[0], sp.pts[sp.pts.length - 1]);
+      const touch = g => {
+        if (!ends.length) return g.length;
+        const segs = [];
+        for (const pi of g.paths) for (const sp of vec.paths[pi].subs) for (let k = 1; k < sp.pts.length; k++) segs.push([sp.pts[k - 1], sp.pts[k]]);
+        const tolE = Math.max(g.width * 2, pageDiag * 0.0015);
+        const cell = tolE * 4, grid = new Map(), key = (i, j) => i + ',' + j;
+        segs.forEach((q, i) => { const x0 = Math.floor((Math.min(q[0][0], q[1][0]) - tolE) / cell), x1 = Math.floor((Math.max(q[0][0], q[1][0]) + tolE) / cell), y0 = Math.floor((Math.min(q[0][1], q[1][1]) - tolE) / cell), y1 = Math.floor((Math.max(q[0][1], q[1][1]) + tolE) / cell);
+          if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4000) return;
+          for (let a = x0; a <= x1; a++) for (let c = y0; c <= y1; c++) { const k = key(a, c); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(i); } });
+        let hits = 0;
+        for (const p of ends) {
+          const l = grid.get(key(Math.floor(p[0] / cell), Math.floor(p[1] / cell))) || [];
+          if (l.some(i => { const [a, b] = segs[i], d = sub(b, a), L2 = dot(d, d); const t = L2 ? Math.max(0, Math.min(1, dot(sub(p, a), d) / L2)) : 0; return len(sub(p, lerp(a, b, t))) <= tolE; })) hits++;
+        }
+        return hits + g.length * 1e-6;
+      };
+      const solids = groups.filter(g => g.kind === CUT).map(g => ({ g, L: touch(g) })).sort((a, b) => b.L - a.L).map(x => { if (opts.debugAll) console.log('  caneta', x.g.color, x.g.width.toFixed(2), 'pontas de vinco encostadas', Math.floor(x.L)); return x.g; });
+      const cutW = solids.length && (hasCrease || hasPerf) ? solids[0].width : 0;
+      const use = groups.filter(g => g.width >= minW && (g.kind !== CUT || g.width >= cutW * 0.6));
+      const how = hasCrease ? 'tracejado' : hasPerf ? 'traço-ponto' : 'contínuo';
+      if (use.length) variants.push({ color, groups: use, hasCrease: hasCrease || hasPerf, how });
+      // às vezes o corte é mais fino que o vinco: tenta também com todas as espessuras (só se a leitura normal falhar)
+      if (use.length < groups.length) variants.push({ color, groups, hasCrease: hasCrease || hasPerf, how: how + ' (todas)', fallback: true });
+      if (!hasCrease && !hasPerf) {
+        const solid = gs.filter(g => g.kind === CUT && g.length > pageDiag * 0.05).sort((a, b) => a.width - b.width);
+        if (solid.length >= 2 && solid[solid.length - 1].width > solid[0].width * 1.7) {
+          const thin = solid[0];
+          variants.push({ color, groups: gs.filter(g => g.width >= thin.width * 0.9).map(g => g === thin ? as(g, CREASE) : g), hasCrease: true, how: 'espessura' });
+        }
+      }
     }
-    const ok = results.filter(r => !r.error).sort((a, b) => b.score - a.score);
+    const colors = [...byColor.entries()].map(([c, gs]) => ({ c, gs, len: lenOf(gs), box: gs.reduce((b, g) => [Math.min(b[0], g.x0), Math.min(b[1], g.y0), Math.max(b[2], g.x1), Math.max(b[3], g.y1)], [1e9, 1e9, -1e9, -1e9]) }))
+      .filter(x => x.len > pageDiag * 0.3).sort((a, b) => b.len - a.len).slice(0, 5);
+    for (const A of colors) for (const B of colors) {
+      if (A === B) continue;
+      const pad = Math.max(A.box[2] - A.box[0], A.box[3] - A.box[1]) * 0.02;
+      if (!(B.box[0] >= A.box[0] - pad && B.box[1] >= A.box[1] - pad && B.box[2] <= A.box[2] + pad && B.box[3] <= A.box[3] + pad)) continue;
+      const bs = B.gs.filter(g => g.kind === CUT && g.length > pageDiag * 0.05);
+      if (!bs.length || A.gs.some(g => g.kind === CREASE) || A.len < B.len * 0.3) continue;
+      variants.push({ color: A.c, groups: A.gs.filter(g => g.kind === CUT).concat(bs.map(g => as(g, CREASE))), hasCrease: true, how: 'cor ' + B.c });
+    }
+    const goodEnough = () => results.some(r => !r.error && r.hinges.length >= 3);
+    for (const v of variants.sort((a, b) => !!a.fallback - !!b.fallback)) {
+      if (v.fallback && goodEnough()) continue;
+      try {
+        const r = build(vec, v.groups, v.hasCrease, opts);
+        r.color = v.color; r.creaseBy = v.how;
+        // sem marcação de vinco, qualquer linha vira dobra: só vale se nada melhor aparecer
+        if (!v.hasCrease) r.score *= 0.3;
+        results.push(r);
+      } catch (e) { results.push({ color: v.color, how: v.how, error: e.message }); }
+    }
+    if (opts.debugAll) results.forEach(r => console.log('variante', r.color, r.creaseBy || r.how, r.error || `painéis ${r.panels.length} vincos ${r.hinges.length} soltos ${r.slits.length} score ${r.score.toFixed(1)}`));
+    // prioridade pela força da evidência: vinco tracejado > vinco por cor/espessura > sem marcação
+    const level = r => /^tracejado|^traço-ponto/.test(r.creaseBy || '') ? 3 : /^cor|^espessura/.test(r.creaseBy || '') ? 2 : 1;
+    const ok = results.filter(r => !r.error).sort((a, b) => ((b.hinges.length >= 3) - (a.hinges.length >= 3)) || (level(b) - level(a)) || (b.score - a.score));
     if (!ok.length) { const e = new Error('Não encontrei a faca no PDF.'); e.details = results; throw e; }
     return ok[0];
   }
@@ -423,10 +489,20 @@ const Dieline = (() => {
     const slits = F.dangling.map(e => [graph.nodes[e.u].p, graph.nodes[e.v].p]);
     if (opts.debug) opts.debug({ graph, F, segs, structural });
     // pontuação
-    const score = keep.length * 2 + hinges.length * 5 + (hasCrease ? 10 : 0) + Math.log(D + 1);
+    const score = keep.length * 2 + hinges.length * 5 + (hasCrease ? 10 : 0) + Math.log(D + 1) - F.dangling.length * 0.5;
     if (!hinges.length) throw new Error('nenhum vinco encontrado');
+    // peças: grupos de painéis ligados por vincos (uma folha pode ter várias caixas, ou tampa e fundo)
+    const hk = hinges.filter(h => keep.includes(panels[h.a]) && keep.includes(panels[h.b]));
+    const par = new Map(keep.map(f => [f.id, f.id]));
+    const fnd = x => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+    hk.forEach(h => par.set(fnd(h.a), fnd(h.b)));
+    const pm = new Map();
+    keep.forEach(f => { const r = fnd(f.id); let p = pm.get(r); if (!p) pm.set(r, p = { ids: [], area: 0, x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 }); p.ids.push(f.id); p.area += f.area; for (const q of f.poly) { p.x0 = Math.min(p.x0, q[0]); p.y0 = Math.min(p.y0, q[1]); p.x1 = Math.max(p.x1, q[0]); p.y1 = Math.max(p.y1, q[1]); } });
+    const pieces = [...pm.values()].filter(p => p.ids.length >= 2).sort((a, b) => b.area - a.area);
+    // peças iguais (cópias na mesma folha) ficam marcadas para não repetir na escolha
+    pieces.forEach((p, i) => { p.copyOf = pieces.slice(0, i).findIndex(q => q.ids.length === p.ids.length && Math.abs(q.area - p.area) / q.area < 0.02); });
     return {
-      panels: keep, hinges: hinges.filter(h => keep.includes(panels[h.a]) && keep.includes(panels[h.b])),
+      panels: keep, hinges: hk, pieces,
       allPanels: panels, outline, perfs, perfCreases, slits, hasCrease, tol,
       bbox: { x0: main.x0, y0: main.y0, x1: main.x1, y1: main.y1 },
       score,

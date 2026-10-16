@@ -1,0 +1,13 @@
+{
+  "name": "easyflow-flexocad",
+  "private": true,
+  "description": "Mockup 3D de caixas de papelão a partir da ficha em PDF (faca + arte).",
+  "scripts": {
+    "build": "python3 build.py",
+    "test": "node test/batch.js amostras/*.pdf"
+  },
+  "devDependencies": {
+    "pdfjs-dist": "3.11.174",
+    "three": "0.128.0"
+  }
+}

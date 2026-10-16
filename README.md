@@ -6,17 +6,21 @@ Envie a ficha de impressão (faca + arte) e, se tiver, a ficha técnica (forma).
 
 ## O que faz
 
-- **Lê a faca do PDF**: linhas de corte (contínuas), vinco (tracejado) e picote (traço-ponto); também reconstrói facas exportadas como contorno preenchido.
+- **Lê a faca do PDF** de vários fornecedores: vinco tracejado, traço-ponto, por cor (ex.: vermelho) ou por espessura; também reconstrói facas exportadas como contorno preenchido.
 - **Acha a escala real**: pelos "Ajustes" da ficha de impressão, pelas cotas da ficha técnica ou pelas medidas internas.
 - **Reconhece o estilo** e aplica a receita de dobra, como os estilos do ArtiosCAD:
-  - caixa maleta FEFCO 0201 e variações (fundo travado, furos, orelha na aba de cola)
+  - caixa maleta FEFCO 0201 e variações (fundo automático, divisória incorporada, furos, orelha na aba de cola)
+  - meia caixa (caixas grandes feitas de duas peças)
   - mala com alça
-  - bandeja com parede dupla
+  - bandeja e bandeja com parede dupla
   - cartucho de correio (FEFCO 0427)
   - suporte com furos / montagem pelo fundo
+- **Folhas com várias caixas**: escolha a peça (tampa, fundo…); cópias iguais aparecem uma vez.
 - **Espessura do papelão** por onda (E, B, C, EB, BC), com a borda ondulada visível e as abas empilhadas sem se atravessar.
 - **Conferência**: compara a ficha de impressão com a ficha técnica (chapa, painéis, altura, caixa montada) e sobrepõe os dois desenhos.
 - **Editor de dobras**: clique num painel para mudar ângulo, etapa ou painel base; salve o estilo para aplicar sozinho em facas iguais.
+
+Testado com 65 fichas reais (50 OK na conferência automática): ver [docs/TESTES.md](docs/TESTES.md).
 
 ## Como publicar
 
@@ -37,21 +41,26 @@ A partir daí, toda atualização na branch `main` publica sozinha.
 ### Outras hospedagens
 [`public/index.html`](public/index.html) funciona sozinho em qualquer hospedagem de arquivos (GitHub Pages, por exemplo).
 
+## Documentação
+
+| Documento | Conteúdo |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | Guia rápido para quem for continuar o projeto (pessoas ou IAs) |
+| [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | Como o app funciona por dentro, módulo a módulo |
+| [docs/ESTILOS.md](docs/ESTILOS.md) | Biblioteca de estilos de caixa e como criar um novo |
+| [docs/TESTES.md](docs/TESTES.md) | Ferramentas de teste, amostras e resultado atual |
+| [docs/HISTORICO.md](docs/HISTORICO.md) | O que foi feito, decisões e pendências |
+
 ## Estrutura
 
 | Pasta / arquivo | Conteúdo |
 |---|---|
-| `src/pdfvec.js` | leitura vetorial do PDF (traços, tracejados, textos) via pdf.js |
-| `src/dieline.js` | faca → grafo planar: painéis, furos, vincos, picotes |
-| `src/outline.js` | reconstrução de facas exportadas como contorno preenchido |
-| `src/sheet.js` | tipo de ficha, campos, escala real e vista (interna/externa) |
-| `src/fold.js` | modelo de dobra, árvore de dobradiças, poses e camadas |
-| `src/styles.js` | biblioteca de estilos (receitas de dobra) |
-| `src/texture.js` | arte renderizada sem os traços técnicos, kraft e borda ondulada |
-| `src/viewer.js` | visualizador 3D (three.js) |
-| `app/` | interface, caixa padrão e o app |
-| `build.py` | junta tudo em `public/index.html` (site), `dist/index.html` e `dist/worker.js` |
-| `wrangler.jsonc` | configuração da Cloudflare |
+| `src/` | motor: leitura do PDF, faca, ficha, dobra, estilos, arte, 3D |
+| `app/` | interface, caixa padrão |
+| `test/` | ferramentas de teste e diagnóstico |
+| `dev/dev.html` | página mínima para testar o motor no navegador |
+| `build.py` | gera `public/index.html` (site), `dist/worker.js` e `dist/index.html` |
+| `wrangler.jsonc` | configuração da Cloudflare (Worker `cria3d`) |
 
 Para gerar de novo depois de mudar o código: `python3 build.py`.
 

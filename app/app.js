@@ -11,6 +11,7 @@
   let fold = 1, anim = null, spin = false, sel = -1, panel = null, selLine = null;
   let thickness = null;     // espessura escolhida pelo usuário (mm) ou automática
   let preferTech = false;   // usar a geometria da ficha técnica mesmo havendo faca na de impressão
+  let piece = 0;            // folha com várias caixas: qual montar
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---------- utilidades de interface ----------
@@ -47,7 +48,7 @@
         sheets.push(entry);
       } catch (e) { showMsg(`Não consegui abrir ${file.name}: ${e.message}`); }
     }
-    preferTech = false; sel = -1;
+    preferTech = false; sel = -1; piece = 0;
     await rebuild();
     setBusy(null);
   }
@@ -73,10 +74,11 @@
       return;
     }
     setBusy('Montando a caixa…');
-    const model = Fold.buildModel(geom.sheet, { thickness: thickness || undefined });
-    const sig = signature(model);
+    const pieceList = (geom.sheet.dieline.pieces || []).map((p, i) => ({ ...p, i })).filter(p => p.copyOf < 0);
+    if (!pieceList.some(p => p.i === piece)) piece = pieceList.length ? pieceList[0].i : 0;
+    let { model, recipe } = Styles.auto(geom.sheet, { thickness: thickness || undefined, piece });
+    const sig = signature(model) + (piece ? '-p' + piece : '');
     const saved = loadStyles()[sig];
-    let recipe = Styles.detect(model);
     const auto = JSON.parse(JSON.stringify(recipe));
     if (saved) { recipe = { ...recipe, ...saved, prog: { ...recipe.prog, ...saved.prog }, savedStyle: true }; }
     // arte
@@ -99,7 +101,7 @@
       const c = compare(print.sheet, tech.sheet);
       if (c.bad) warns.push(`a conferência encontrou ${c.bad} diferença${c.bad > 1 ? 's' : ''} entre as fichas (abra "Conferência")`);
     }
-    cur = { model, recipe, auto, art, hide, colors, geom, print, tech, sig, printName: print && print.name, warns };
+    cur = { model, recipe, auto, art, hide, colors, geom, print, tech, sig, printName: print && print.name, warns, pieceList };
     V.setBox({ model, recipe, art });
     fold = 1; $('fold').value = 1000; V.setT(1); updPlay(); renderTicks();
     if (!keepView) V.frame('iso', true);
@@ -109,13 +111,16 @@
     setBusy(null);
   }
   function defaultHide(print) {
-    const stroke = new Set(), fill = new Set();
+    const stroke = new Set(), fill = new Set(), text = new Set();
     if (print.sheet && !print.sheet.outlined) stroke.add(print.sheet.dieline.color);
+    if (print.sheet && print.sheet.outlined) fill.add(print.sheet.dieline.color);
+    // cotas escritas na cor da faca (comum em fichas de outros fornecedores): somem da arte quando a cor não é preta
+    if (print.sheet) { const c = print.sheet.dieline.color, [r, g, b] = [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16)); if (0.3 * r + 0.59 * g + 0.11 * b > 70) { text.add(c); fill.add(c); } }
     print.vec.paths.forEach(p => {
       if (p.stroke && Texture.isAnnotation(p.stroke)) stroke.add(p.stroke);
       if (p.fill && Texture.isAnnotation(p.fill)) fill.add(p.fill);
     });
-    return { stroke, fill };
+    return { stroke, fill, text };
   }
   function layerColors(print) {
     const m = new Map();
@@ -127,8 +132,7 @@
 
   // ---------- conferência entre ficha de impressão e ficha técnica ----------
   function measures(sheet) {
-    const m = Fold.buildModel(sheet);
-    const r = Styles.detect(m);
+    const { model: m, recipe: r } = Styles.auto(sheet);
     const tr = Fold.tree(m, r.root);
     const { M } = Fold.poses(m, tr, r.prog, 1, null);
     const box = new THREE.Box3(), v = new THREE.Vector3();
@@ -178,6 +182,7 @@
     const okSrc = g.scaleSource !== 'tamanho real do PDF';
     $('specs').innerHTML = `
       <span class="style">${esc(cur.recipe.label)}${cur.recipe.savedStyle ? ' · estilo salvo' : ''}</span>
+      ${cur.pieceList && cur.pieceList.length > 1 ? `<span class="pieces" role="group" aria-label="Peças da folha">Peça ${cur.pieceList.map((p, k) => `<button data-piece="${p.i}" class="${p.i === piece ? 'on' : ''}">${k + 1}</button>`).join('')}</span>` : ''}
       <span>Montada <b>${outer.map(v => Math.round(v)).join(' × ')}</b> mm</span>
       <span>Chapa <b>${Math.round(cur.model.W)} × ${Math.round(cur.model.H)}</b></span>
       ${g.info.interna ? `<span>Interna <b>${esc(g.info.interna)}</b></span>` : ''}
@@ -188,6 +193,7 @@
         <button data-panel="conf" class="${panel === 'conf' ? 'on' : ''}">Conferência</button>
         <button data-panel="arte" class="${panel === 'arte' ? 'on' : ''}">Arte e papelão</button>
       </span>`;
+    $('specs').querySelectorAll('[data-piece]').forEach(b => b.onclick = () => { piece = +b.dataset.piece; sel = -1; rebuild(); });
     $('specs').querySelectorAll('[data-panel]').forEach(b => b.onclick = () => { panel = panel === b.dataset.panel ? null : b.dataset.panel; renderSpecs(); renderSide(); });
   }
   function renderSide() {
@@ -402,8 +408,7 @@
     const cv = document.createElement('canvas'); cv.width = img.naturalWidth || 2; cv.height = img.naturalHeight || 2;
     cv.getContext('2d').drawImage(img, 0, 0);
     const sheet = SAMPLE.sheet;
-    const model = Fold.buildModel(sheet);
-    const recipe = Styles.detect(model);
+    const { model, recipe } = Styles.auto(sheet);
     sheets = [{ name: SAMPLE.name, kind: 'impressao', sheet, sample: true }];
     cur = { model, recipe, auto: JSON.parse(JSON.stringify(recipe)), art: cv, hide: null, colors: [], geom: sheets[0], print: null, tech: null, sig: signature(model), warns: [] };
     renderChips(sheets[0], null, sheets[0]);

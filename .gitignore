@@ -1,3 +1,11 @@
-__pycache__/
+# dependências e saídas de teste
 node_modules/
+out/
+dev/app-local.html
+__pycache__/
 .DS_Store
+# PDFs de clientes: ficam só na máquina de quem testa (ver docs/TESTES.md)
+amostras/
+samples/
+samples2/
+*.7z

@@ -13,9 +13,18 @@ const Fold = (() => {
     const SX = sheet.SX, SY = sheet.SY, mir = !!sheet.mirror;
     const W = (b.x1 - b.x0) / SX, H = (b.y1 - b.y0) / SY;
     // página -> mm (origem no centro do desenho, y para cima, vista pelo lado impresso)
-    const toMM = p => [((mir ? (b.x1 - p[0]) : (p[0] - b.x0)) / SX) - W / 2, -((p[1] - b.y0) / SY) + H / 2];
+    const toMM0 = p => [((mir ? (b.x1 - p[0]) : (p[0] - b.x0)) / SX) - W / 2, -((p[1] - b.y0) / SY) + H / 2];
+    // opts.rot = 1: gira o desenho 90° (faca desenhada "em pé", com os painéis empilhados na vertical)
+    const rot = opts.rot ? 1 : 0;
+    const R = q => rot ? [-q[1], q[0]] : q, Rinv = q => rot ? [q[1], -q[0]] : q;
+    const toMM = p => R(toMM0(p));
     const fromMM = q => [mir ? b.x1 - (q[0] + W / 2) * SX : b.x0 + (q[0] + W / 2) * SX, b.y0 + (H / 2 - q[1]) * SY];
-    const faces = dl.panels.map((p, i) => {
+    // várias peças na folha: monta só a escolhida (padrão: a maior)
+    const pieces = dl.pieces || [];
+    const pick = pieces.length ? pieces[Math.min(opts.piece || 0, pieces.length - 1)] : null;
+    const allow = pick ? new Set(pick.ids) : null;
+    const panelsSel = allow ? dl.panels.filter(p => allow.has(p.id)) : dl.panels;
+    const faces = panelsSel.map((p, i) => {
       const poly = p.poly.map(toMM), holes = p.holes.map(h => h.map(toMM));
       let cx = 0, cy = 0;
       const ip = toMM(p.ip);
@@ -33,9 +42,9 @@ const Fold = (() => {
     hinges.forEach(h => { faces[h.a].hinges.push(h.id); faces[h.b].hinges.push(h.id); });
     const t = opts.thickness || (sheet.flute && sheet.flute.esp) || 3;
     return {
-      faces, hinges, W, H, thickness: t, toMM, fromMM,
+      rot, piece: opts.piece || 0, faces, hinges, W: rot ? H : W, H: rot ? W : H, W0: W, H0: H, thickness: t, toMM, fromMM,
       // coordenadas da arte na vista do lado impresso (vale também para geometria vinda da ficha técnica espelhada)
-      uvOf: q => [(q[0] + W / 2) / W, (q[1] + H / 2) / H],
+      uvOf: q => { const o = Rinv(q); return [(o[0] + W / 2) / W, (o[1] + H / 2) / H]; },
       perfs: (dl.perfs || []).map(s => s.map(toMM)), slits: (dl.slits || []).map(s => s.map(toMM)),
       sheet,
     };

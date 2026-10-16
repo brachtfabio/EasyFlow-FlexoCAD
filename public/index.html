@@ -48,6 +48,8 @@ button:disabled{opacity:.45;cursor:default}
 .specs .src.ok::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:6px;vertical-align:1px}
 .specs .src.warn{color:var(--warn-fg)}
 .tools{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.pieces{display:inline-flex;align-items:center;gap:4px;font-family:var(--body)}
+.pieces button{padding:3px 9px;font-size:12px}
 .tools button{padding:5px 10px;font-size:12px}
 .msg{padding-block:8px;background:var(--warn-bg);color:var(--warn-fg);font-size:13px}
 main{flex:1;min-height:0;display:flex}
@@ -525,24 +527,90 @@ const Dieline = (() => {
     const pageDiag = Math.hypot(vec.width, vec.height);
     const all = pens(vec);
     // descarta canetas de moldura/carimbo: traço contínuo cobrindo quase a página toda
-    const frameLike = g => g.kind === CUT && (g.x1 - g.x0) > vec.width * 0.8 && (g.y1 - g.y0) > vec.height * 0.8;
+    // moldura da folha: retângulos simples cobrindo quase a página toda
+    const frameLike = g => g.kind === CUT && (g.x1 - g.x0) > vec.width * 0.8 && (g.y1 - g.y0) > vec.height * 0.8 &&
+      g.paths.every(pi => vec.paths[pi].subs.every(sp => sp.pts.length <= 5));
     // canetas candidatas por cor
     const byColor = new Map();
     for (const g of all) { if (frameLike(g)) continue; let c = byColor.get(g.color); if (!c) byColor.set(g.color, c = []); c.push(g); }
     const results = [];
+    // Variantes de leitura (cada fornecedor marca o vinco de um jeito):
+    //  1) vinco tracejado e corte contínuo, na mesma cor (Trombini, Flexograv, fichas técnicas)
+    //  2) só traço-ponto na cor: o traço-ponto é o vinco (exportações tipo ArtiosCAD)
+    //  3) mesma cor, linhas contínuas: a mais fina é o vinco
+    //  4) cores diferentes: uma cor é o corte e a outra, contínua, é o vinco (ex.: preto = corte, vermelho = vinco)
+    const variants = [];
+    const as = (g, kind) => ({ ...g, kind });
+    const lenOf = gs => gs.reduce((s, g) => s + g.length, 0);
     for (const [color, gs] of byColor) {
       const hasCrease = gs.some(g => g.kind === CREASE && g.length > pageDiag * 0.05);
-      // espessuras usadas pelos vincos: os cortes da faca usam espessura igual ou maior
-      const creaseW = gs.filter(g => g.kind === CREASE).map(g => g.width);
-      const minW = creaseW.length ? Math.min(...creaseW) * 0.7 : 0;
-      const use = gs.filter(g => g.width >= minW);
-      if (!use.length) continue;
-      try {
-        const r = build(vec, use, hasCrease, opts);
-        r.color = color; results.push(r);
-      } catch (e) { results.push({ color, error: e.message }); }
+      const hasPerf = gs.some(g => g.kind === PERF && g.length > pageDiag * 0.05);
+      let groups = gs;
+      if (!hasCrease && hasPerf) groups = gs.map(g => g.kind === PERF ? as(g, CREASE) : g);
+      const creaseW = groups.filter(g => g.kind === CREASE).map(g => g.width);
+      // linhas bem mais finas que o vinco são cotas e anotações
+      const minW = creaseW.length ? Math.min(...creaseW) * 0.5 : 0;
+      // corte: a caneta contínua mais usada; contínuas bem mais finas que ela são cotas, moldura e anotações
+      // (escolhe a caneta em que as pontas dos vincos encostam: cota, moldura e "perfil" não encostam nos vincos)
+      const cr = groups.filter(g => g.kind === CREASE);
+      const ends = [];
+      for (const g of cr) for (const pi of g.paths) for (const sp of vec.paths[pi].subs) if (sp.pts.length > 1) ends.push(sp.pts[0], sp.pts[sp.pts.length - 1]);
+      const touch = g => {
+        if (!ends.length) return g.length;
+        const segs = [];
+        for (const pi of g.paths) for (const sp of vec.paths[pi].subs) for (let k = 1; k < sp.pts.length; k++) segs.push([sp.pts[k - 1], sp.pts[k]]);
+        const tolE = Math.max(g.width * 2, pageDiag * 0.0015);
+        const cell = tolE * 4, grid = new Map(), key = (i, j) => i + ',' + j;
+        segs.forEach((q, i) => { const x0 = Math.floor((Math.min(q[0][0], q[1][0]) - tolE) / cell), x1 = Math.floor((Math.max(q[0][0], q[1][0]) + tolE) / cell), y0 = Math.floor((Math.min(q[0][1], q[1][1]) - tolE) / cell), y1 = Math.floor((Math.max(q[0][1], q[1][1]) + tolE) / cell);
+          if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4000) return;
+          for (let a = x0; a <= x1; a++) for (let c = y0; c <= y1; c++) { const k = key(a, c); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(i); } });
+        let hits = 0;
+        for (const p of ends) {
+          const l = grid.get(key(Math.floor(p[0] / cell), Math.floor(p[1] / cell))) || [];
+          if (l.some(i => { const [a, b] = segs[i], d = sub(b, a), L2 = dot(d, d); const t = L2 ? Math.max(0, Math.min(1, dot(sub(p, a), d) / L2)) : 0; return len(sub(p, lerp(a, b, t))) <= tolE; })) hits++;
+        }
+        return hits + g.length * 1e-6;
+      };
+      const solids = groups.filter(g => g.kind === CUT).map(g => ({ g, L: touch(g) })).sort((a, b) => b.L - a.L).map(x => { if (opts.debugAll) console.log('  caneta', x.g.color, x.g.width.toFixed(2), 'pontas de vinco encostadas', Math.floor(x.L)); return x.g; });
+      const cutW = solids.length && (hasCrease || hasPerf) ? solids[0].width : 0;
+      const use = groups.filter(g => g.width >= minW && (g.kind !== CUT || g.width >= cutW * 0.6));
+      const how = hasCrease ? 'tracejado' : hasPerf ? 'traço-ponto' : 'contínuo';
+      if (use.length) variants.push({ color, groups: use, hasCrease: hasCrease || hasPerf, how });
+      // às vezes o corte é mais fino que o vinco: tenta também com todas as espessuras (só se a leitura normal falhar)
+      if (use.length < groups.length) variants.push({ color, groups, hasCrease: hasCrease || hasPerf, how: how + ' (todas)', fallback: true });
+      if (!hasCrease && !hasPerf) {
+        const solid = gs.filter(g => g.kind === CUT && g.length > pageDiag * 0.05).sort((a, b) => a.width - b.width);
+        if (solid.length >= 2 && solid[solid.length - 1].width > solid[0].width * 1.7) {
+          const thin = solid[0];
+          variants.push({ color, groups: gs.filter(g => g.width >= thin.width * 0.9).map(g => g === thin ? as(g, CREASE) : g), hasCrease: true, how: 'espessura' });
+        }
+      }
     }
-    const ok = results.filter(r => !r.error).sort((a, b) => b.score - a.score);
+    const colors = [...byColor.entries()].map(([c, gs]) => ({ c, gs, len: lenOf(gs), box: gs.reduce((b, g) => [Math.min(b[0], g.x0), Math.min(b[1], g.y0), Math.max(b[2], g.x1), Math.max(b[3], g.y1)], [1e9, 1e9, -1e9, -1e9]) }))
+      .filter(x => x.len > pageDiag * 0.3).sort((a, b) => b.len - a.len).slice(0, 5);
+    for (const A of colors) for (const B of colors) {
+      if (A === B) continue;
+      const pad = Math.max(A.box[2] - A.box[0], A.box[3] - A.box[1]) * 0.02;
+      if (!(B.box[0] >= A.box[0] - pad && B.box[1] >= A.box[1] - pad && B.box[2] <= A.box[2] + pad && B.box[3] <= A.box[3] + pad)) continue;
+      const bs = B.gs.filter(g => g.kind === CUT && g.length > pageDiag * 0.05);
+      if (!bs.length || A.gs.some(g => g.kind === CREASE) || A.len < B.len * 0.3) continue;
+      variants.push({ color: A.c, groups: A.gs.filter(g => g.kind === CUT).concat(bs.map(g => as(g, CREASE))), hasCrease: true, how: 'cor ' + B.c });
+    }
+    const goodEnough = () => results.some(r => !r.error && r.hinges.length >= 3);
+    for (const v of variants.sort((a, b) => !!a.fallback - !!b.fallback)) {
+      if (v.fallback && goodEnough()) continue;
+      try {
+        const r = build(vec, v.groups, v.hasCrease, opts);
+        r.color = v.color; r.creaseBy = v.how;
+        // sem marcação de vinco, qualquer linha vira dobra: só vale se nada melhor aparecer
+        if (!v.hasCrease) r.score *= 0.3;
+        results.push(r);
+      } catch (e) { results.push({ color: v.color, how: v.how, error: e.message }); }
+    }
+    if (opts.debugAll) results.forEach(r => console.log('variante', r.color, r.creaseBy || r.how, r.error || `painéis ${r.panels.length} vincos ${r.hinges.length} soltos ${r.slits.length} score ${r.score.toFixed(1)}`));
+    // prioridade pela força da evidência: vinco tracejado > vinco por cor/espessura > sem marcação
+    const level = r => /^tracejado|^traço-ponto/.test(r.creaseBy || '') ? 3 : /^cor|^espessura/.test(r.creaseBy || '') ? 2 : 1;
+    const ok = results.filter(r => !r.error).sort((a, b) => ((b.hinges.length >= 3) - (a.hinges.length >= 3)) || (level(b) - level(a)) || (b.score - a.score));
     if (!ok.length) { const e = new Error('Não encontrei a faca no PDF.'); e.details = results; throw e; }
     return ok[0];
   }
@@ -676,10 +744,20 @@ const Dieline = (() => {
     const slits = F.dangling.map(e => [graph.nodes[e.u].p, graph.nodes[e.v].p]);
     if (opts.debug) opts.debug({ graph, F, segs, structural });
     // pontuação
-    const score = keep.length * 2 + hinges.length * 5 + (hasCrease ? 10 : 0) + Math.log(D + 1);
+    const score = keep.length * 2 + hinges.length * 5 + (hasCrease ? 10 : 0) + Math.log(D + 1) - F.dangling.length * 0.5;
     if (!hinges.length) throw new Error('nenhum vinco encontrado');
+    // peças: grupos de painéis ligados por vincos (uma folha pode ter várias caixas, ou tampa e fundo)
+    const hk = hinges.filter(h => keep.includes(panels[h.a]) && keep.includes(panels[h.b]));
+    const par = new Map(keep.map(f => [f.id, f.id]));
+    const fnd = x => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+    hk.forEach(h => par.set(fnd(h.a), fnd(h.b)));
+    const pm = new Map();
+    keep.forEach(f => { const r = fnd(f.id); let p = pm.get(r); if (!p) pm.set(r, p = { ids: [], area: 0, x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 }); p.ids.push(f.id); p.area += f.area; for (const q of f.poly) { p.x0 = Math.min(p.x0, q[0]); p.y0 = Math.min(p.y0, q[1]); p.x1 = Math.max(p.x1, q[0]); p.y1 = Math.max(p.y1, q[1]); } });
+    const pieces = [...pm.values()].filter(p => p.ids.length >= 2).sort((a, b) => b.area - a.area);
+    // peças iguais (cópias na mesma folha) ficam marcadas para não repetir na escolha
+    pieces.forEach((p, i) => { p.copyOf = pieces.slice(0, i).findIndex(q => q.ids.length === p.ids.length && Math.abs(q.area - p.area) / q.area < 0.02); });
     return {
-      panels: keep, hinges: hinges.filter(h => keep.includes(panels[h.a]) && keep.includes(panels[h.b])),
+      panels: keep, hinges: hk, pieces,
       allPanels: panels, outline, perfs, perfCreases, slits, hasCrease, tol,
       bbox: { x0: main.x0, y0: main.y0, x1: main.x1, y1: main.y1 },
       score,
@@ -777,7 +855,7 @@ const Outline = (() => {
     });
     const cands = [...byColor.values()].filter(g => !/^#f[0-9a-f]f[0-9a-f]f/.test(g.color) && g.items.length > 10).sort((a, b) => b.len - a.len);
     const results = [];
-    for (const g of cands.slice(0, 3)) {
+    for (const g of cands.slice(0, 4)) {
       const th = g.th.sort((a, b) => a - b)[g.th.length >> 1];
       // espessura típica da linha: descarta formas grossas demais para serem linha
       const items = g.items.filter(it => it.th < th * 2.2);
@@ -807,8 +885,15 @@ const Outline = (() => {
         const isDash = straight && Ls[i] < short;
         paths.push({ stroke: g.color, fill: null, width: th, dash: isDash ? [-1] : [], subs: [{ pts: l.pts, closed: false }], curved: !straight, synthetic: true, dashPiece: isDash });
       });
-      results.push({ color: g.color, paths: joinDashes(paths, th) });
+      const joined = joinDashes(paths, th);
+      // uma faca tem vincos: conta as linhas tracejadas reconstruídas e descarta cores sem nenhuma
+      const creases = joined.filter(p => p.dash && p.dash.length).length;
+      if (creases >= 2) results.push({ color: g.color, paths: joined, creases });
     }
+    // a faca costuma ser o desenho mais simples com vincos longos: tenta primeiro os de menos peças
+    const diag = Math.hypot(vec.width, vec.height);
+    results.forEach(r => { r.longCreases = r.paths.filter(p => p.dash && p.dash.length && Math.hypot(p.subs[0].pts[1][0] - p.subs[0].pts[0][0], p.subs[0].pts[1][1] - p.subs[0].pts[0][1]) > diag * 0.04).length; });
+    results.sort((a, b) => (b.longCreases >= 3) - (a.longCreases >= 3) || a.paths.length - b.paths.length);
     return results.map(r => ({ width: vec.width, height: vec.height, texts: vec.texts, paths: r.paths, synthetic: true, color: r.color }));
   }
 
@@ -915,6 +1000,8 @@ const Sheet = (() => {
       onda: field(texts, ['Onda:']),
       estilo: field(texts, ['Estilo:']),
       obs: field(texts, ['Obs.:']),
+      // fichas de outros fornecedores: a medida costuma vir solta no texto, ex. "400x235x180" ou "300x150x100-30"
+      medidaSolta: (texts.map(t => t.str).join(' ').match(/\b(\d{2,4})\s*[xX]\s*(\d{2,4})\s*[xX]\s*(\d{2,4})(?!\s*mm)/) || [])[0] || null,
       fornecedor: /trombini/.test(all) ? 'Trombini' : /flexograv/.test(all) ? 'Flexograv' : null,
     };
     let dl = null, err = null, outlined = false;
@@ -922,7 +1009,8 @@ const Sheet = (() => {
     if (!dl || dl.hinges.length < 3) {
       // faca exportada como contorno preenchido
       const OL = typeof Outline !== 'undefined' ? Outline : require('./outline');
-      for (const v2 of OL.convert(vec)) {
+      for (const v2 of OL.convert(vec).slice(0, 2)) {
+        if (dl && dl._sc > 0 && dl.hinges.length >= 3) break;
         for (const k of [1, 1.8, 2.6]) {
           try {
             const w = Math.max(...v2.paths.map(p => p.width));
@@ -934,6 +1022,7 @@ const Sheet = (() => {
       }
     }
     if (!dl) throw err || new Error('Não encontrei a faca no PDF.');
+    if (!info.interna && info.medidaSolta) info.interna = info.medidaSolta;
     const bw = dl.bbox.x1 - dl.bbox.x0, bh = dl.bbox.y1 - dl.bbox.y0;
     let SX = null, SY = null, source = null;
     // 1) ficha de impressão: soma dos ajustes = largura e altura totais da chapa
@@ -955,6 +1044,25 @@ const Sheet = (() => {
         if (err < 0.015 && (!best || h.v + v.v > best.h + best.v)) best = { h: h.v, v: v.v, sx, sy };
       }
       if (best) { SX = best.sx; SY = best.sy; source = 'cotas do desenho'; info.total = [best.h, best.v]; }
+    }
+    // ajuste com um número só (ex.: "1912") às vezes é a chapa inteira com várias caixas: confere com a medida interna
+    const scaleFromInterna = () => {
+      const mi = nums(info.interna);
+      if (mi.length !== 3) return null;
+      let best = null;
+      for (const p of dl.panels) {
+        let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+        for (const q of p.poly) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (i !== j) {
+          const sx = (x1 - x0) / mi[i], sy = (y1 - y0) / mi[j];
+          if (Math.abs(sx - sy) / sx < 0.04 && (!best || p.area > best.area)) best = { area: p.area, s: (sx + sy) / 2 };
+        }
+      }
+      return best ? best.s : null;
+    };
+    if (SX && imp.length === 1) {
+      const s2 = scaleFromInterna();
+      if (s2 && Math.abs(s2 - SX) / SX > 0.15) { SX = SY = s2; source = 'medidas internas'; }
     }
     // 3) medidas internas casadas com o maior painel de mesmas proporções
     if (!SX) {
@@ -996,9 +1104,18 @@ const Fold = (() => {
     const SX = sheet.SX, SY = sheet.SY, mir = !!sheet.mirror;
     const W = (b.x1 - b.x0) / SX, H = (b.y1 - b.y0) / SY;
     // página -> mm (origem no centro do desenho, y para cima, vista pelo lado impresso)
-    const toMM = p => [((mir ? (b.x1 - p[0]) : (p[0] - b.x0)) / SX) - W / 2, -((p[1] - b.y0) / SY) + H / 2];
+    const toMM0 = p => [((mir ? (b.x1 - p[0]) : (p[0] - b.x0)) / SX) - W / 2, -((p[1] - b.y0) / SY) + H / 2];
+    // opts.rot = 1: gira o desenho 90° (faca desenhada "em pé", com os painéis empilhados na vertical)
+    const rot = opts.rot ? 1 : 0;
+    const R = q => rot ? [-q[1], q[0]] : q, Rinv = q => rot ? [q[1], -q[0]] : q;
+    const toMM = p => R(toMM0(p));
     const fromMM = q => [mir ? b.x1 - (q[0] + W / 2) * SX : b.x0 + (q[0] + W / 2) * SX, b.y0 + (H / 2 - q[1]) * SY];
-    const faces = dl.panels.map((p, i) => {
+    // várias peças na folha: monta só a escolhida (padrão: a maior)
+    const pieces = dl.pieces || [];
+    const pick = pieces.length ? pieces[Math.min(opts.piece || 0, pieces.length - 1)] : null;
+    const allow = pick ? new Set(pick.ids) : null;
+    const panelsSel = allow ? dl.panels.filter(p => allow.has(p.id)) : dl.panels;
+    const faces = panelsSel.map((p, i) => {
       const poly = p.poly.map(toMM), holes = p.holes.map(h => h.map(toMM));
       let cx = 0, cy = 0;
       const ip = toMM(p.ip);
@@ -1016,9 +1133,9 @@ const Fold = (() => {
     hinges.forEach(h => { faces[h.a].hinges.push(h.id); faces[h.b].hinges.push(h.id); });
     const t = opts.thickness || (sheet.flute && sheet.flute.esp) || 3;
     return {
-      faces, hinges, W, H, thickness: t, toMM, fromMM,
+      rot, piece: opts.piece || 0, faces, hinges, W: rot ? H : W, H: rot ? W : H, W0: W, H0: H, thickness: t, toMM, fromMM,
       // coordenadas da arte na vista do lado impresso (vale também para geometria vinda da ficha técnica espelhada)
-      uvOf: q => [(q[0] + W / 2) / W, (q[1] + H / 2) / H],
+      uvOf: q => { const o = Rinv(q); return [(o[0] + W / 2) / W, (o[1] + H / 2) / H]; },
       perfs: (dl.perfs || []).map(s => s.map(toMM)), slits: (dl.slits || []).map(s => s.map(toMM)),
       sheet,
     };
@@ -1213,7 +1330,7 @@ const Styles = (() => {
   function recipeRSC(model, det) {
     const F = model.faces, { panels, glue } = det;
     const pw = panels.map(f => F[f].w);
-    const longIdx = pw[0] + pw[2] > pw[1] + pw[3] ? [0, 2] : [1, 3];
+    const longIdx = panels.length === 2 ? [pw[0] >= pw[1] ? 0 : 1] : pw[0] + pw[2] > pw[1] + pw[3] ? [0, 2] : [1, 3];
     // frente = painel comprido que não encosta na aba de cola
     const adjGlue = f => glue != null && F[f].hinges.some(id => other(model.hinges[id], f) === glue);
     const root = panels[longIdx.find(i => !adjGlue(panels[i]))] ?? panels[longIdx[0]];
@@ -1221,7 +1338,7 @@ const Styles = (() => {
     const prog = {};
     const isBody = new Set(det.chain);
     const major = new Set(longIdx.map(i => panels[i]));
-    const notes = [];
+    const notes = new Set();
     for (const f of tr.order) {
       if (tr.parent[f] < 0) continue;
       const hid = tr.via[f], par = tr.parent[f], h = model.hinges[hid];
@@ -1232,10 +1349,21 @@ const Styles = (() => {
       const top = F[f].c[1] > F[a].c[1];
       const base = major.has(a) ? 3 : 2;
       if (lvl === 1) prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) };
-      else prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + lvl * 2 };
+      else {
+        const hp = model.hinges[tr.via[par]], diag = Math.abs(h.dir[0]) > 0.15 && Math.abs(h.dir[1]) > 0.15;
+        const parallel = Math.abs(h.dir[0] * hp.dir[0] + h.dir[1] * hp.dir[1]) > 0.9;
+        if (diag) prog[hid] = { angle: 180, stage: base + (top ? 2 : 0) - 0.5 };            // fundo automático: a dobra diagonal fica colada por baixo
+        else if (parallel && lvl === 2) prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + 1 };   // divisória: sobe por dentro da caixa
+        else if (parallel) prog[hid] = { angle: 0, stage: base + (top ? 2 : 0) + 1 };      // continuação da divisória (com as fendas de encaixe)
+        else prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + lvl * 2 };
+        if (parallel && !diag) notes.add('divisoria');
+      }
     }
     // fundo primeiro, tampa depois
-    return { style: 'rsc', label: 'Caixa maleta (FEFCO 0201)', root, orient: 'front', prog, notes };
+    const nl = [];
+    if (notes.has('divisoria')) nl.push('As abas de baixo com várias dobras foram montadas como divisória interna (sobem por dentro da caixa). Ajuste no editor se a montagem for diferente.');
+    const label = notes.has('divisoria') ? 'Caixa com divisória incorporada' : 'Caixa maleta (FEFCO 0201)';
+    return { style: notes.has('divisoria') ? 'rsc-divisoria' : 'rsc', label, root, orient: 'front', prog, notes: nl };
   }
 
   // ---------- caixa maleta com alça (abas superiores em cadeia, sem fundo de abas) ----------
@@ -1297,7 +1425,9 @@ const Styles = (() => {
       prog[tr.via[f]] = { angle: 90, stage: stage[f] };
     }
     const hasDouble = tr.order.some(f => tr.parent[f] >= 0 && rel(f) === 'par' && Math.min(F[f].w, F[f].h) < model.thickness * 4);
-    const hasLid = tr.order.some(f => tr.parent[f] >= 0 && rel(f) === 'par' && F[f].area > F[root].area * 0.5);
+    // tampa: painel ligado a uma parede, do tamanho do fundo (largura e profundidade parecidas)
+    const hasLid = tr.order.some(f => tr.parent[f] >= 0 && rel(f) === 'par' && F[f].area > F[root].area * 0.75 &&
+      Math.abs(Math.max(F[f].w, F[f].h) - Math.max(F[root].w, F[root].h)) < Math.max(F[root].w, F[root].h) * 0.12);
     const label = hasLid ? 'Cartucho de correio (tipo FEFCO 0427)' : hasDouble ? 'Bandeja com parede dupla' : 'Bandeja / montagem pelo fundo';
     return { style: hasLid ? 'cartucho' : 'bandeja', label, root, orient: 'base', prog, notes: [] };
   }
@@ -1308,16 +1438,57 @@ const Styles = (() => {
     return r;
   }
 
+  // ---------- meia caixa: a chapa tem só frente + lateral (+ cola); a caixa usa duas peças iguais ----------
+  function detectHalf(model) {
+    const chain = bodyChain(model), F = model.faces;
+    if (chain.length < 2 || chain.length > 3) return null;
+    const ws = chain.map(f => F[f].w), big = Math.max(...ws);
+    const glueI = ws.findIndex(w => w < big * 0.2);
+    const panels = chain.filter((f, i) => i !== glueI);
+    if (panels.length !== 2) return null;
+    // abas em cima e embaixo dos dois painéis
+    const tr = FoldM.tree(model, panels[0]);
+    const flapsOn = p => tr.order.filter(f => tr.parent[f] === p && !chain.includes(f)).length;
+    if (flapsOn(panels[0]) < 2 || flapsOn(panels[1]) < 2) return null;
+    return { chain, panels, glue: glueI >= 0 ? chain[glueI] : null };
+  }
+  function recipeHalf(model, det) {
+    const F = model.faces;
+    const r = recipeRSC(model, { ...det, panels: det.panels });
+    // frente = o painel mais largo; a cópia gira 180° em volta do eixo vertical no centro da caixa
+    const front = F[det.panels[0]].w >= F[det.panels[1]].w ? det.panels[0] : det.panels[1];
+    const side = front === det.panels[0] ? det.panels[1] : det.panels[0];
+    r.root = front;
+    const tr = FoldM.tree(model, front);
+    for (const f of tr.order) { if (tr.parent[f] < 0) continue; const hid = tr.via[f]; if (det.chain.includes(f) && det.chain.includes(tr.parent[f])) r.prog[hid] = { angle: 90, stage: 1 }; }
+    const fb = F[front].bbox, sideRight = F[side].c[0] > F[front].c[0];
+    r.copy = { L: F[front].w, W: F[side].w, x0: sideRight ? fb[0] : fb[2] - F[front].w, sideRight };
+    r.style = 'meia-caixa'; r.label = 'Caixa em duas metades (0201 dividida)';
+    r.notes = ['A chapa tem meia caixa; a outra metade igual foi colocada girada para completar a caixa.'];
+    return r;
+  }
+
   function detect(model) {
     const rsc = detectRSC(model);
     if (rsc) return detectMala(model, rsc) ? recipeMala(model, rsc) : recipeRSC(model, rsc);
+    const half = detectHalf(model);
+    if (half) return recipeHalf(model, half);
     // montagem pelo fundo: o maior painel tem vincos dos dois sentidos
     const F = model.faces, base = F.reduce((a, f) => f.area > F[a].area ? f.idx : a, 0);
     const hs = F[base].hinges.map(id => model.hinges[id]);
     if (hs.some(isHoriz) && hs.some(isVert)) return recipeTray(model, { root: base });
     return generic(model);
   }
-  return { detect, recipeRSC, recipeTray, generic, detectRSC };
+  // Monta o modelo e escolhe o estilo; se a faca estiver desenhada "em pé", tenta girada 90°.
+  function auto(sheet, opts = {}) {
+    let model = FoldM.buildModel(sheet, opts), recipe = detect(model);
+    if (opts.rot == null && !/^rsc|^mala|^meia/.test(recipe.style)) {
+      const m2 = FoldM.buildModel(sheet, { ...opts, rot: 1 }), r2 = detect(m2);
+      if (/^rsc|^mala/.test(r2.style)) { model = m2; recipe = r2; }
+    }
+    return { model, recipe };
+  }
+  return { detect, auto, recipeRSC, recipeTray, generic, detectRSC };
 })();
 
 
@@ -1349,7 +1520,10 @@ const Texture = (() => {
     // o pdf.js desenha também em telas auxiliares (transparências), então o filtro vai no protótipo durante a renderização
     const proto = CanvasRenderingContext2D.prototype, saved = {};
     for (const fn of ['stroke', 'strokeRect', 'strokeText']) { const o = saved[fn] = proto[fn]; proto[fn] = function (...a) { if (hidS(this.strokeStyle)) return; return o.apply(this, a); }; }
-    for (const fn of ['fill', 'fillText', 'fillRect']) { const o = saved[fn] = proto[fn]; proto[fn] = function (...a) { if (hidF(this.fillStyle)) return; return o.apply(this, a); }; }
+    const ht = [...(hide.text || [])];
+    const hidT = s => { const x = hexOf(s); return x && ht.some(c => near(x, c)); };
+    for (const fn of ['fill', 'fillRect']) { const o = saved[fn] = proto[fn]; proto[fn] = function (...a) { if (hidF(this.fillStyle)) return; return o.apply(this, a); }; }
+    { const o = saved.fillText = proto.fillText; proto.fillText = function (...a) { if (hidF(this.fillStyle) || hidT(this.fillStyle)) return; return o.apply(this, a); }; }
     try {
       const vp = page.getViewport({ scale, offsetX: -region.x0 * scale, offsetY: -region.y0 * scale });
       await page.render({ canvasContext: ctx, viewport: vp, background: 'rgb(255,255,255)' }).promise;
@@ -1359,7 +1533,7 @@ const Texture = (() => {
 
   // kraft liso (ficha técnica sem arte), com marcas de picote e cortes soltos
   function kraft(model, maxSize) {
-    const ar = model.W / model.H;
+    const ar = (model.W0 || model.W) / (model.H0 || model.H);
     const cv = document.createElement('canvas');
     cv.width = Math.round(ar >= 1 ? maxSize : maxSize * ar); cv.height = Math.round(ar >= 1 ? maxSize / ar : maxSize);
     const ctx = cv.getContext('2d');
@@ -1492,7 +1666,13 @@ const Viewer = (() => {
       });
       world.rotation.set(recipe.orient === 'base' ? Math.PI / 2 : 0, 0, 0);
       world.updateMatrix();
-      S = { model, recipe, tr, offsets, objs, T: 1 };
+      S = { model, recipe, tr, offsets, objs, T: 1, copies: null };
+      // meia caixa: a segunda metade é a mesma peça girada 180° em volta do eixo vertical do centro da caixa
+      if (recipe.copy) {
+        const c = recipe.copy, cx = c.sideRight ? c.x0 + c.L / 2 : c.x0 + c.L / 2, cz = -c.W / 2;
+        S.copyM = new THREE.Matrix4().makeTranslation(cx, 0, cz).multiply(new THREE.Matrix4().makeRotationY(Math.PI)).multiply(new THREE.Matrix4().makeTranslation(-cx, 0, -cz));
+        S.copies = objs.map(o => { if (!o) return null; const m = new THREE.Mesh(o.geometry, o.material); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; m.userData.face = o.userData.face; m.userData.copy = true; world.add(m); return m; });
+      }
       // centros do desenho aberto e da caixa montada (para deslizar suavemente durante a dobra)
       S.c0 = bounds(0); S.c1 = bounds(1);
       const span = Math.max(S.c0.size.x, S.c0.size.z, S.c1.size.x, S.c1.size.y, S.c1.size.z);
@@ -1506,15 +1686,19 @@ const Viewer = (() => {
     function clear() {
       if (!S) return;
       S.objs.forEach(o => { if (o) { world.remove(o); o.geometry.dispose(); } });
+      if (S.copies) S.copies.forEach(o => { if (o) world.remove(o); });
       if (artTex) { artTex.dispose(); artTex = null; }
       if (printMat) printMat.dispose();
       S = null;
     }
     const tmpV = new THREE.Vector3();
+    // a segunda metade aparece quando as paredes já estão em pé
+    const copyOn = T => T >= 1 / Math.max(1, Fold.timeline(S.recipe.prog).stages.length) - 1e-6;
     function bounds(T) {
       const { M } = Fold.poses(S.model, S.tr, S.recipe.prog, T, S.offsets);
       const box = new THREE.Box3(), R = world.matrix;
       S.model.faces.forEach((F, f) => { if (!M[f]) return; for (const p of F.poly) box.expandByPoint(tmpV.set(p[0], p[1], 0).applyMatrix4(M[f]).applyMatrix4(R)); });
+      if (S.copies && copyOn(T)) S.model.faces.forEach((F, f) => { if (!M[f]) return; for (const p of F.poly) box.expandByPoint(tmpV.set(p[0], p[1], 0).applyMatrix4(M[f]).applyMatrix4(S.copyM).applyMatrix4(R)); });
       return { box, center: box.getCenter(new THREE.Vector3()), size: box.getSize(new THREE.Vector3()) };
     }
     function setT(T) {
@@ -1522,6 +1706,7 @@ const Viewer = (() => {
       S.T = T;
       const { M } = Fold.poses(S.model, S.tr, S.recipe.prog, T, S.offsets);
       S.objs.forEach((o, f) => { if (o) { o.matrix.copy(M[f]); o.matrixWorldNeedsUpdate = true; } });
+      if (S.copies) { const on = copyOn(T); S.copies.forEach((o, f) => { if (!o) return; o.visible = on; o.matrix.multiplyMatrices(S.copyM, M[f]); o.matrixWorldNeedsUpdate = true; }); }
       const b = bounds(T);
       const e = Fold.ease(T);
       lift.position.set(-THREE.MathUtils.lerp(S.c0.center.x, S.c1.center.x, e), -b.box.min.y + 0.5, -THREE.MathUtils.lerp(S.c0.center.z, S.c1.center.z, e));
@@ -1586,6 +1771,7 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
   let fold = 1, anim = null, spin = false, sel = -1, panel = null, selLine = null;
   let thickness = null;     // espessura escolhida pelo usuário (mm) ou automática
   let preferTech = false;   // usar a geometria da ficha técnica mesmo havendo faca na de impressão
+  let piece = 0;            // folha com várias caixas: qual montar
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---------- utilidades de interface ----------
@@ -1622,7 +1808,7 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
         sheets.push(entry);
       } catch (e) { showMsg(`Não consegui abrir ${file.name}: ${e.message}`); }
     }
-    preferTech = false; sel = -1;
+    preferTech = false; sel = -1; piece = 0;
     await rebuild();
     setBusy(null);
   }
@@ -1648,10 +1834,11 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
       return;
     }
     setBusy('Montando a caixa…');
-    const model = Fold.buildModel(geom.sheet, { thickness: thickness || undefined });
-    const sig = signature(model);
+    const pieceList = (geom.sheet.dieline.pieces || []).map((p, i) => ({ ...p, i })).filter(p => p.copyOf < 0);
+    if (!pieceList.some(p => p.i === piece)) piece = pieceList.length ? pieceList[0].i : 0;
+    let { model, recipe } = Styles.auto(geom.sheet, { thickness: thickness || undefined, piece });
+    const sig = signature(model) + (piece ? '-p' + piece : '');
     const saved = loadStyles()[sig];
-    let recipe = Styles.detect(model);
     const auto = JSON.parse(JSON.stringify(recipe));
     if (saved) { recipe = { ...recipe, ...saved, prog: { ...recipe.prog, ...saved.prog }, savedStyle: true }; }
     // arte
@@ -1674,7 +1861,7 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
       const c = compare(print.sheet, tech.sheet);
       if (c.bad) warns.push(`a conferência encontrou ${c.bad} diferença${c.bad > 1 ? 's' : ''} entre as fichas (abra "Conferência")`);
     }
-    cur = { model, recipe, auto, art, hide, colors, geom, print, tech, sig, printName: print && print.name, warns };
+    cur = { model, recipe, auto, art, hide, colors, geom, print, tech, sig, printName: print && print.name, warns, pieceList };
     V.setBox({ model, recipe, art });
     fold = 1; $('fold').value = 1000; V.setT(1); updPlay(); renderTicks();
     if (!keepView) V.frame('iso', true);
@@ -1684,13 +1871,16 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
     setBusy(null);
   }
   function defaultHide(print) {
-    const stroke = new Set(), fill = new Set();
+    const stroke = new Set(), fill = new Set(), text = new Set();
     if (print.sheet && !print.sheet.outlined) stroke.add(print.sheet.dieline.color);
+    if (print.sheet && print.sheet.outlined) fill.add(print.sheet.dieline.color);
+    // cotas escritas na cor da faca (comum em fichas de outros fornecedores): somem da arte quando a cor não é preta
+    if (print.sheet) { const c = print.sheet.dieline.color, [r, g, b] = [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16)); if (0.3 * r + 0.59 * g + 0.11 * b > 70) { text.add(c); fill.add(c); } }
     print.vec.paths.forEach(p => {
       if (p.stroke && Texture.isAnnotation(p.stroke)) stroke.add(p.stroke);
       if (p.fill && Texture.isAnnotation(p.fill)) fill.add(p.fill);
     });
-    return { stroke, fill };
+    return { stroke, fill, text };
   }
   function layerColors(print) {
     const m = new Map();
@@ -1702,8 +1892,7 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
 
   // ---------- conferência entre ficha de impressão e ficha técnica ----------
   function measures(sheet) {
-    const m = Fold.buildModel(sheet);
-    const r = Styles.detect(m);
+    const { model: m, recipe: r } = Styles.auto(sheet);
     const tr = Fold.tree(m, r.root);
     const { M } = Fold.poses(m, tr, r.prog, 1, null);
     const box = new THREE.Box3(), v = new THREE.Vector3();
@@ -1753,6 +1942,7 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
     const okSrc = g.scaleSource !== 'tamanho real do PDF';
     $('specs').innerHTML = `
       <span class="style">${esc(cur.recipe.label)}${cur.recipe.savedStyle ? ' · estilo salvo' : ''}</span>
+      ${cur.pieceList && cur.pieceList.length > 1 ? `<span class="pieces" role="group" aria-label="Peças da folha">Peça ${cur.pieceList.map((p, k) => `<button data-piece="${p.i}" class="${p.i === piece ? 'on' : ''}">${k + 1}</button>`).join('')}</span>` : ''}
       <span>Montada <b>${outer.map(v => Math.round(v)).join(' × ')}</b> mm</span>
       <span>Chapa <b>${Math.round(cur.model.W)} × ${Math.round(cur.model.H)}</b></span>
       ${g.info.interna ? `<span>Interna <b>${esc(g.info.interna)}</b></span>` : ''}
@@ -1763,6 +1953,7 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
         <button data-panel="conf" class="${panel === 'conf' ? 'on' : ''}">Conferência</button>
         <button data-panel="arte" class="${panel === 'arte' ? 'on' : ''}">Arte e papelão</button>
       </span>`;
+    $('specs').querySelectorAll('[data-piece]').forEach(b => b.onclick = () => { piece = +b.dataset.piece; sel = -1; rebuild(); });
     $('specs').querySelectorAll('[data-panel]').forEach(b => b.onclick = () => { panel = panel === b.dataset.panel ? null : b.dataset.panel; renderSpecs(); renderSide(); });
   }
   function renderSide() {
@@ -1977,8 +2168,7 @@ const SAMPLE = {"sheet": {"kind": "impressao", "info": {"cliente": "EasyFlow", "
     const cv = document.createElement('canvas'); cv.width = img.naturalWidth || 2; cv.height = img.naturalHeight || 2;
     cv.getContext('2d').drawImage(img, 0, 0);
     const sheet = SAMPLE.sheet;
-    const model = Fold.buildModel(sheet);
-    const recipe = Styles.detect(model);
+    const { model, recipe } = Styles.auto(sheet);
     sheets = [{ name: SAMPLE.name, kind: 'impressao', sheet, sample: true }];
     cur = { model, recipe, auto: JSON.parse(JSON.stringify(recipe)), art: cv, hide: null, colors: [], geom: sheets[0], print: null, tech: null, sig: signature(model), warns: [] };
     renderChips(sheets[0], null, sheets[0]);
