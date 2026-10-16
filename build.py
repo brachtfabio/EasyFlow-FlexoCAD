@@ -5,6 +5,8 @@ src = re.sub(r"^if \(typeof module !== 'undefined'\).*$", '', src, flags=re.M)
 t = open('app/template.html').read()
 html = t.replace('__MODULES__', src).replace('__SAMPLE__', open('app/sample.json').read()).replace('__APP__', open('app/app.js').read())
 open('dist/index.html', 'w').write(html)
+import os
+os.makedirs('public', exist_ok=True)
 # worker
 i = html.index('<header')
 full = ('<!doctype html>\n<html lang="pt-BR">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
@@ -25,4 +27,5 @@ export default {{
 }};
 '''
 open('dist/worker.js', 'w').write(worker)
+open('public/index.html', 'w').write(full)
 print('html', len(html) // 1024, 'KB; worker', len(worker) // 1024, 'KB')

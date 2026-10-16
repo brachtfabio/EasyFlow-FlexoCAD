@@ -20,13 +20,22 @@ Envie a ficha de impressão (faca + arte) e, se tiver, a ficha técnica (forma).
 
 ## Como publicar
 
-### Cloudflare Worker
-1. No painel da Cloudflare: **Workers & Pages → Create → Create Worker**.
-2. **Edit code**, apague o conteúdo e cole o arquivo [`dist/worker.js`](dist/worker.js).
-3. **Deploy**.
+### Cloudflare com atualização automática (recomendado)
+O repositório já tem o `wrangler.jsonc`, que publica `public/index.html`.
 
-### Página estática
-O arquivo [`dist/index.html`](dist/index.html) funciona sozinho: dá para publicar no GitHub Pages ou em qualquer hospedagem de arquivos.
+1. No painel da Cloudflare: **Workers & Pages → Create → Import a repository**.
+2. Conecte o GitHub e escolha **easyflow-flexocad**.
+3. Deixe o comando de build vazio e o de deploy como `npx wrangler deploy` (padrão). Clique em **Deploy**.
+
+A partir daí, toda atualização na branch `main` publica sozinha.
+
+### Cloudflare Worker colando o código
+1. **Workers & Pages → Create → Create Worker**.
+2. **Edit code**, apague o conteúdo e cole o arquivo [`dist/worker.js`](dist/worker.js).
+3. **Deploy**. (Nesse modo não atualiza sozinho.)
+
+### Outras hospedagens
+[`public/index.html`](public/index.html) funciona sozinho em qualquer hospedagem de arquivos (GitHub Pages, por exemplo).
 
 ## Estrutura
 
@@ -41,7 +50,8 @@ O arquivo [`dist/index.html`](dist/index.html) funciona sozinho: dá para public
 | `src/texture.js` | arte renderizada sem os traços técnicos, kraft e borda ondulada |
 | `src/viewer.js` | visualizador 3D (three.js) |
 | `app/` | interface, caixa padrão e o app |
-| `build.py` | junta tudo em `dist/index.html` e `dist/worker.js` |
+| `build.py` | junta tudo em `public/index.html` (site), `dist/index.html` e `dist/worker.js` |
+| `wrangler.jsonc` | configuração da Cloudflare |
 
 Para gerar de novo depois de mudar o código: `python3 build.py`.
 

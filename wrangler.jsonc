@@ -1,0 +1,10 @@
+{
+  // Publicação na Cloudflare: serve o app (public/index.html) como site estático.
+  // Com o repositório conectado em Workers & Pages, cada atualização no GitHub publica sozinha.
+  "name": "easyflow-flexocad",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application"
+  }
+}
