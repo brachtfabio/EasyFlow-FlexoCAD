@@ -1,7 +1,7 @@
 {
   // Publicação na Cloudflare: serve o app (public/index.html) como site estático.
   // Com o repositório conectado em Workers & Pages, cada atualização no GitHub publica sozinha.
-  "name": "easyflow-flexocad",
+  "name": "cria3d",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./public",
