@@ -1,0 +1,152 @@
+<title>EasyFlow FlexoCAD</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: ferramenta de tela única — barra de fichas no topo, palco 3D ao centro com painel lateral recolhível, controles de dobra embaixo */
+:root{
+  --bg:#ebe9e3; --stage:#e1ded5; --panel:#f8f7f3; --fg:#22201b; --muted:#6d685d; --line:#d2cdc0;
+  --accent:#9a6a26; --accent-fg:#fffaf0; --ok:#3f6b37; --warn-bg:#f6e3d6; --warn-fg:#8a3214; --sel:#2a6fdb;
+  --display:"Barlow Semi Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1b1a17; --stage:#24231f; --panel:#2b2925; --fg:#eeeae0; --muted:#a59f91; --line:#3d3a34;
+  --accent:#d6a55c; --accent-fg:#1b1a17; --ok:#9cc98f; --warn-bg:#3d2318; --warn-fg:#f2b79a; --sel:#7fb0ff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1b1a17; --stage:#24231f; --panel:#2b2925; --fg:#eeeae0; --muted:#a59f91; --line:#3d3a34;
+  --accent:#d6a55c; --accent-fg:#1b1a17; --ok:#9cc98f; --warn-bg:#3d2318; --warn-fg:#f2b79a; --sel:#7fb0ff; color-scheme:dark}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;display:flex;flex-direction:column;overflow:hidden}
+.pad{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{padding-block:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;border-bottom:1px solid var(--line)}
+.brand{font:700 13px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 20px var(--display);margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.01em}
+h1 small{font-weight:500;color:var(--muted);font-size:14px;margin-left:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;background:var(--panel)}
+.chip b{font-weight:600}
+.chip .role{font:600 10px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.chip button{border:0;background:none;padding:0 6px;font-size:14px;line-height:1;color:var(--muted);cursor:pointer}
+button,.filebtn{font:600 13px var(--display);letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--line);background:var(--panel);color:var(--fg);padding:7px 12px;border-radius:4px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;position:relative}
+button:hover,.filebtn:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible,.filebtn:focus-within,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+button:disabled{opacity:.45;cursor:default}
+.filebtn{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.filebtn input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.specs{padding-block:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;font:12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums;border-bottom:1px solid var(--line)}
+.specs b{color:var(--fg);font-weight:500}
+.specs .style{font:600 13px var(--display);letter-spacing:.03em;color:var(--fg);text-transform:uppercase}
+.specs .src{font-family:var(--body)}
+.specs .src.ok::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:6px;vertical-align:1px}
+.specs .src.warn{color:var(--warn-fg)}
+.tools{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.tools button{padding:5px 10px;font-size:12px}
+.msg{padding-block:8px;background:var(--warn-bg);color:var(--warn-fg);font-size:13px}
+main{flex:1;min-height:0;display:flex}
+.stage{position:relative;flex:1;min-width:0;min-height:0;background:var(--stage)}
+canvas#c{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none}
+.views{position:absolute;top:10px;right:max(10px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:4px}
+.views button{padding:5px 10px;font-size:12px;justify-content:center}
+.hint{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:10px;font-size:12px;color:var(--muted);pointer-events:none;max-width:70%}
+.drop{position:absolute;inset:10px;border:2px dashed var(--accent);border-radius:8px;background:color-mix(in srgb,var(--stage) 85%,transparent);display:flex;align-items:center;justify-content:center;text-align:center;font:600 18px var(--display);letter-spacing:.04em;text-transform:uppercase;color:var(--accent);pointer-events:none;padding:16px}
+.busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--stage) 78%,transparent);font:600 15px var(--display);letter-spacing:.06em;text-transform:uppercase}
+aside{width:340px;max-width:100%;border-left:1px solid var(--line);background:var(--panel);overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+aside h2{font:700 15px var(--display);letter-spacing:.06em;text-transform:uppercase;margin:0;display:flex;align-items:center;justify-content:space-between;gap:8px}
+aside h2 button{padding:2px 8px;font-size:16px}
+aside p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+.field{display:grid;gap:6px}
+.field label,.lbl{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.row button{padding:5px 9px;font-size:12px}
+input[type=number],select,textarea{font:13px var(--mono);padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
+input[type=number]{width:90px}
+textarea{width:100%;min-height:90px;box-sizing:border-box;resize:vertical}
+.sel{border:1px solid var(--line);border-radius:6px;padding:10px;display:grid;gap:10px}
+.sel .t{font:600 14px var(--display);letter-spacing:.02em}
+.sel .t span{color:var(--muted);font:12px var(--mono);margin-left:6px}
+table.conf{width:100%;border-collapse:collapse;font:12px var(--mono);font-variant-numeric:tabular-nums}
+table.conf th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:right;padding:4px}
+table.conf th:first-child,table.conf td:first-child{text-align:left;font-family:var(--body)}
+table.conf td{text-align:right;padding:5px 4px;border-top:1px solid var(--line)}
+td.bad{color:var(--warn-fg);font-weight:600}
+td.good{color:var(--ok)}
+.overlay{width:100%;aspect-ratio:1.6;max-width:100%;background:var(--bg);border:1px solid var(--line);border-radius:4px}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px}
+.layers label{display:flex;align-items:center;gap:8px;font-size:13px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:2px;border:1px solid var(--line)}
+.controls{padding-block:10px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;border-top:1px solid var(--line);background:var(--panel)}
+#play{background:var(--fg);color:var(--bg);border-color:var(--fg);min-width:100px;justify-content:center}
+.fold{flex:1;min-width:200px;display:flex;flex-direction:column;gap:3px}
+.fold input{width:100%;accent-color:var(--accent)}
+.ticks{display:flex;justify-content:space-between;font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.ticks span.act{color:var(--fg)}
+.pct{font:13px var(--mono);width:44px;text-align:right;font-variant-numeric:tabular-nums}
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:6px;font-size:13px;z-index:20;max-width:90vw}
+@media (max-width:760px){
+  main{flex-direction:column}
+  aside{width:auto;border-left:0;border-top:1px solid var(--line);flex:0 0 48%;max-height:48%}
+  .hint{display:none}
+  .views{flex-direction:row;flex-wrap:wrap;left:max(10px,env(safe-area-inset-left,0px));justify-content:flex-end}
+  .specs{gap:4px 12px}
+  .tools{margin-left:0}
+  h1{font-size:17px}
+  .controls{gap:8px 10px}
+  #play{min-width:84px}
+  .fold{min-width:0;flex-basis:120px}
+  .ticks span:nth-child(2){display:none}
+}
+</style>
+
+<header class="pad">
+  <span class="brand">EasyFlow <b style="color:var(--accent)">FlexoCAD</b></span>
+  <h1 id="title">Exemplo</h1>
+  <div class="chips" id="chips"></div>
+  <label class="filebtn" id="pick">Enviar PDF<input type="file" id="file" accept="application/pdf,.pdf" multiple></label>
+</header>
+<div class="specs pad" id="specs"></div>
+<div class="msg pad" id="msg" hidden></div>
+
+<main>
+  <div class="stage" id="stage">
+    <canvas id="c" aria-label="Caixa em 3D"></canvas>
+    <div class="views" role="group" aria-label="Vistas">
+      <button data-view="iso" id="v-iso">3/4</button>
+      <button data-view="front" id="v-front">Frente</button>
+      <button data-view="side" id="v-side">Lateral</button>
+      <button data-view="top" id="v-top">Topo</button>
+      <button data-view="back" id="v-back">Verso</button>
+      <button data-view="under" id="v-under">Fundo</button>
+    </div>
+    <div class="hint" id="hint">Arraste para girar · role ou pince para zoom · solte aqui a ficha de impressão e, se tiver, a ficha técnica</div>
+    <div class="drop" id="drop" hidden>Solte os PDFs: ficha de impressão e/ou ficha técnica</div>
+    <div class="busy" id="busy" hidden>Lendo o PDF…</div>
+  </div>
+  <aside id="side" hidden></aside>
+</main>
+
+<div class="controls pad">
+  <button id="play">Abrir</button>
+  <div class="fold">
+    <input type="range" id="fold" min="0" max="1000" value="1000" aria-label="Dobra">
+    <div class="ticks" id="ticks"></div>
+  </div>
+  <span class="pct" id="pct">100%</span>
+  <button id="spin">Girar</button>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+__MODULES__
+</script>
+<script>
+const SAMPLE = __SAMPLE__;
+__APP__
+</script>
