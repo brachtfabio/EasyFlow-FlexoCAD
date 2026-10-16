@@ -95,7 +95,11 @@
     }
     if (!art) art = Texture.kraft(model, 2048);
     if (print && !print.sheet && !techOK) warns.push(print.error || 'faca não encontrada');
-    if (geom.sheet.scaleSource === 'tamanho real do PDF') warns.push('não achei as medidas escritas na ficha; usei o tamanho do desenho');
+    // problemas do próprio arquivo (texto em curvas, campos fora do lugar, medida que não bate com a faca)
+    const fileProblems = [...(geom.sheet.problems || []), ...Styles.checkMeasures(geom.sheet, model, recipe)];
+    fileProblems.forEach(p => warns.push('problema no arquivo: ' + p));
+    if (geom.sheet.scaleSource === 'tamanho real do PDF' && !fileProblems.some(p => /texto legível/.test(p))) warns.push('não achei as medidas escritas na ficha; usei o tamanho do desenho');
+    else if (geom.sheet.scaleSource === 'tamanho real do PDF') warns.push('usei o tamanho do desenho no PDF');
     if (geom.sheet.outlined) warns.push('a faca veio como contorno preenchido e foi reconstruída; confira os detalhes ou envie também a ficha técnica');
     if (print && tech && print.sheet && tech.sheet) {
       const c = compare(print.sheet, tech.sheet);

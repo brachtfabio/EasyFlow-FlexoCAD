@@ -39,6 +39,7 @@ const nums = s => s ? (s.match(/\d+(?:[.,]\d+)?/g) || []).map(v => parseFloat(v.
       const { model, recipe: rec } = Styles.auto(sh);
       r.pieces = (sh.dieline.pieces || []).filter(p => p.copyOf < 0).length; r.rot = model.rot;
       r.style = rec.style;
+      r.problems = [...(sh.problems || []), ...Styles.checkMeasures(sh, model, rec)];
       const d = dimsOf(model, rec);
       r.loose = d.loose;
       const got = d.dims.slice().sort((a, b) => b - a);
@@ -54,7 +55,7 @@ const nums = s => s ? (s.match(/\d+(?:[.,]\d+)?/g) || []).map(v => parseFloat(v.
     } catch (e) { r.error = e.message.slice(0, 90); }
     r.ms = Date.now() - t0;
     rows.push(r);
-    const st = r.error ? 'ERRO ' + r.error : `${(r.style || '').padEnd(9)} p${String(r.panels).padStart(2)} v${String(r.hinges).padStart(2)} ${r.scale === 'tamanho real do PDF' ? '1:1!' : '    '} int ${String(r.interna || '-').padEnd(18)} got ${r.got.join('x').padEnd(14)} ${r.ok === true ? 'OK' : r.ok === false ? 'DIF ' + r.err.join(',') : '?'}${r.loose ? ' soltos ' + r.loose : ''}${r.outlined ? ' contorno' : ''}${r.rot ? ' girada' : ''}${r.pieces > 1 ? ' peças ' + r.pieces : ''}`;
+    const st = r.error ? 'ERRO ' + r.error : `${(r.style || '').padEnd(9)} p${String(r.panels).padStart(2)} v${String(r.hinges).padStart(2)} ${r.scale === 'tamanho real do PDF' ? '1:1!' : '    '} int ${String(r.interna || '-').padEnd(18)} got ${r.got.join('x').padEnd(14)} ${r.ok === true ? 'OK' : r.ok === false ? 'DIF ' + r.err.join(',') : '?'}${r.loose ? ' soltos ' + r.loose : ''}${r.outlined ? ' contorno' : ''}${r.rot ? ' girada' : ''}${r.pieces > 1 ? ' peças ' + r.pieces : ''}${r.problems && r.problems.length ? ' AVISO-ARQUIVO ' + r.problems.length : ''}`;
     console.log(name.padEnd(18), (r.kind || '').padEnd(10), st);
   }
   const ok = rows.filter(r => r.ok === true).length, err = rows.filter(r => r.error).length;

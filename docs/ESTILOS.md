@@ -40,10 +40,15 @@ Ordem de tentativa:
 - Orelhas da aba de cola dobram junto com as abas.
 - Abas com mais de um nível (lvl ≥ 2):
   - vinco **diagonal** → 180°, logo antes da aba mãe (**fundo automático**: o gusset fica colado por baixo);
-  - vinco **paralelo**, nível 2 → 90° (sobe por dentro da caixa) e nível ≥3 → 0° (continua subindo): **divisória incorporada** (`rsc-divisoria`), típica de caixas de garrafas com divisória feita das abas do fundo.
+  - vinco **paralelo**: a cadeia de abas (nível 1 → 2 → 3…) é classificada pelo tamanho comparado com o **vão** que ela atravessa (largura do painel vizinho):
+    - **colarinho** (`rsc-colar`): a 1ª faixa tem **vinco duplo** estreito (< 5 espessuras ou 15 mm) ou **furo de alça** dos dois lados da dobra → dobra 180° para dentro (parede dupla com a alça vazada) e a aba seguinte fecha a tampa por dentro (−90°), abaixo do colarinho. Faixas do mesmo lado com a mesma altura seguem a mesma regra. Caso: 3D Abrasivos (lingueta de uma aba entra na fenda da faixa do outro lado).
+    - **plana**: a cadeia inteira cabe deitada em até 55% do vão → aba comum com um vinco a mais (trava do fundo), níveis ≥2 a 0°. Caso: caixas de maçã Adair (57 + 93 mm num vão de 310).
+    - **divisória incorporada** (`rsc-divisoria`): nível 2 → 90° (sobe por dentro) e nível ≥3 → 0° (continua subindo). Caixas de garrafas (b-3 azeite, b-22, b-39 espumante). **Conferido nesta rodada:** o nível 1 das abas largas tem metade da profundidade (a divisória sobe no meio) e o das abas estreitas tem 1/3 do comprimento (as divisórias transversais ficam a 1/3 e 2/3); as fendas das abas largas ficam exatamente nessas posições, e fenda de cima + fenda de baixo somam a altura da divisória. Grade 3×2 = 6 garrafas.
+- Abas só de um lado (sem tampa ou sem fundo de abas) → rótulo *Caixa sem tampa (FEFCO 0200)*, mesma montagem.
 
 ### `mala` — Caixa maleta com alça
 Corpo e abas compridas como a RSC; na aba comprida, a alça (nível 2) volta −90° para encostar na outra alça, recortes da pega ficam no plano (0°). As abas laterais afuniladas viram reforço interno: dobras a 90°, a última a −90°.
+**Conferido (Tonin, a-853690):** a aba lateral tem 20 | 82 | 6 (vinco duplo) | 77 | 15 mm. A faixa de 20 mm deita sob a tampa, a de 82 desce por dentro, o vinco duplo de 6 mm (= 2 espessuras) faz a volta, a de 77 sobe (82 − 6 ≈ 77, chega na altura da tampa) e a lingueta de 15 mm fecha contra a parede de cabeceira (que está a ~14 mm). As medidas fecham com o "tubo"; as larguras afunilam (260 → 210) para entrar entre as paredes.
 
 ### `meia-caixa` — Caixa em duas metades
 Receita da RSC sobre a meia chapa; `copy` faz o viewer desenhar a segunda metade girada 180° em volta do eixo vertical do centro da caixa (aparece quando as paredes já estão em pé).
@@ -53,6 +58,8 @@ A partir do fundo (maior painel):
 - **parede** (filho direto do fundo): etapa 1 se tem abas perpendiculares (orelhas de canto), senão etapa 3;
 - **perpendicular** ao vinco do pai (orelhas de canto): meia etapa antes do painel que as leva, para entrar por dentro;
 - **paralelo** (parede dupla, tampa, aba de encaixe): etapa seguinte, ≥ 4.
+- Orelha presa numa parede que já virou 180° (parede dupla) dobra ao contrário: se terminar fora do fundo, o sentido é invertido. Caso: Agropampa caixa única (abas nas pontas da parede interna forram frente e fundo).
+- Colunas de canto (agroserra): aba trapezoidal no topo da lateral + duas abas que descem pela cabeceira e voltam pela lateral formam uma coluna oca; as linguetas no topo encaixam nas fendas do fundo da caixa de cima. Monta certo com as regras acima.
 - Rótulo: tem tampa do tamanho do fundo (área ≥75% e mesmo comprimento) → *Cartucho de correio (tipo FEFCO 0427)*; tem tira estreita paralela → *Bandeja com parede dupla*; senão *Bandeja / montagem pelo fundo*.
 
 ## Como adicionar um estilo novo

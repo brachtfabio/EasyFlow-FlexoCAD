@@ -42,12 +42,32 @@ Mudanças:
 
 Resultado: **50 de 66 OK numérico**, nenhum erro de leitura; os demais conferidos visualmente. Ver [TESTES.md](TESTES.md).
 
+## Rodada 6 — fichas novas em `amostras/projetos` (10 fichas)
+Linha de base: as 66 antigas iguais à tabela; das 10 novas, 3 OK e 7 com problema.
+
+Mudanças:
+1. **Colarinho com alça** (`rsc-colar`, 3D Abrasivos): faixa com vinco duplo ou furo de alça dobra 180° para dentro; a tampa fecha por dentro, abaixo dela. Antes virava "divisória" e as abas ficavam para fora.
+2. **Aba com vinco a mais que cabe deitada** (caixas de maçã Adair): não é divisória; fica plana.
+3. **Campo da ficha na linha errada** (Adilson): se a "Med. Interna" não tem formato A x B x C, usa a medida solta do texto.
+4. **Orelhas de parede dupla** (Agropampa caixa única): invertidas quando terminavam fora da caixa.
+5. Rótulo **Caixa sem tampa (FEFCO 0200)** quando só há abas de um lado.
+6. **Avisos de "problema no arquivo"** (faixa laranja do app), pedidos pelo responsável para erros da própria ficha:
+   - texto em curvas (sem letras legíveis): Adair e as fichas b-40 a b-45;
+   - campos fora do lugar (a "Med. Interna" sem formato A x B x C): Adilson;
+   - medida interna que não bate com a faca: paredes do corpo mais de 40 mm diferentes da medida escrita (nas 47 caixas normais do lote o máximo foi 17 mm; a 3D Abrasivos dá 80 mm). Só para caixas de 4 paredes (`Styles.checkMeasures`).
+
+Conferências pedidas pelo responsável (análise geométrica, ver ESTILOS.md):
+- **Divisórias incorporadas** (b-3, b-22, b-39): a montagem atual está certa. As medidas das faixas, a posição das fendas e a altura batem com uma grade 3×2.
+- **Mala Tonin** (a-853690): o reforço em "tubo" está certo. Os comprimentos das faixas e o vinco duplo de 6 mm fecham exatamente.
+
+Resultado: 76 fichas, 56 OK numérico, nenhuma regressão nas antigas.
+
+Limitações vistas: Adair tem o texto da ficha em curvas (sem campos); a escala 1:1 está correta porque o PDF é em tamanho real.
+
 ## Pendências conhecidas (backlog)
 
 | Prioridade | Item | Exemplo |
 |---|---|---|
-| Alta | Confirmar com o usuário a montagem das **divisórias incorporadas** (hoje: abas de baixo nível 2 sobem a 90°, nível ≥3 continuam a 0°) | b-3, b-22, b-39, b-47 |
-| Alta | Confirmar a montagem das **abas laterais da mala** (hoje: reforço interno em "tubo") | a-853690, a-830664 |
 | Média | **Mailer com orelhas laterais duplas** (estilo tipo FEFCO 0427 com paredes duplas e orelhas arredondadas) monta errado | b-41 |
 | Média | Folha com **tampa + fundo**: ler as duas peças e montar uma sobre a outra (telescópica) | b-43, b-45 |
 | Média | Folha **sem marcação de vinco** e com várias cópias encostadas: as cópias se unem numa peça só | b-50 |

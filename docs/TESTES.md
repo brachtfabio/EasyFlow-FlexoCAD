@@ -7,6 +7,11 @@ Os PDFs de teste são fichas reais de clientes e **não vão para o repositório
 - `a-*.pdf` — 15 primeiras fichas (3 Flexograv "maleta", 6 fichas de impressão Trombini, 6 fichas técnicas Trombini).
 - `b-1.pdf` … `b-50.pdf` — lote de 50 (39 fichas de impressão Trombini; 11 de outros fornecedores, com faca em verde/ciano, faca por cor e várias caixas por folha).
 - `_padrao.pdf` — a caixa padrão do app (também em `app/caixa-padrao.pdf`).
+- `p-<nome>.pdf` — fichas novas que o responsável coloca em `amostras/projetos/<nome>/projeto.pdf`. **Só o arquivo `projeto.pdf` de cada pasta é amostra deste projeto**; os outros arquivos dessas pastas (e `amostras/automação abrir os/SAIDA`) são de outro projeto e não devem ser lidos.
+
+Onde ficam hoje na máquina do responsável: `a-*` = `amostras/ITENS`, `b-*` = `amostras/automação abrir os/ITENS/N.pdf`, `p-*` = `amostras/projetos/*/projeto.pdf`. Para rodar o lote, copie para uma pasta de trabalho com esses nomes.
+
+**Windows (máquina do responsável):** a pasta Documentos é protegida ("Acesso controlado a pastas"): o Python não consegue gravar nela. Rode o `build.py` numa cópia (`src/`, `app/`, `build.py`) fora de Documentos e copie de volta `public/index.html`, `dist/*` e `dev/app-local.html`. O Node grava normalmente. Não instale nada sem perguntar ao responsável.
 
 ## Preparar
 ```
@@ -34,13 +39,13 @@ python3 build.py
 ```
 b-22.pdf  impressao  rsc-divisoria p20 v21  int 320 X 212 X 105  got 325x215x126  OK
 ```
-`p` painéis, `v` vincos, `int` medida interna da ficha, `got` tamanho externo da caixa montada (ordenado). **OK** quando cada dimensão fica entre `interna − 2·espessura − 2` e `interna + 6·espessura + 12` mm. `1:1!` = escala pelo tamanho do PDF (ficha sem medidas). Marcadores: `contorno` (faca reconstruída de formas preenchidas), `girada` (faca em pé), `peças N` (várias caixas na folha).
+`AVISO-ARQUIVO N` = o app vai mostrar N avisos de problema na própria ficha (texto em curvas, campos fora do lugar, medida que não bate com a faca); a lista sai no `--json` (`problems`). `p` painéis, `v` vincos, `int` medida interna da ficha, `got` tamanho externo da caixa montada (ordenado). **OK** quando cada dimensão fica entre `interna − 2·espessura − 2` e `interna + 6·espessura + 12` mm. `1:1!` = escala pelo tamanho do PDF (ficha sem medidas). Marcadores: `contorno` (faca reconstruída de formas preenchidas), `girada` (faca em pé), `peças N` (várias caixas na folha).
 
 O "OK" é um teste numérico. Sempre olhe também as imagens (`shots_batch.py`): uma caixa pode ter o tamanho certo com uma aba dobrada errada.
 
-## Resultado atual (66 fichas, incluindo a caixa padrão)
+## Resultado atual (76 fichas, incluindo a caixa padrão)
 
-**50 OK numérico**, 9 com diferença (8 explicáveis: alça acima da caixa, parede dupla, tampa sobreposta; 1 real: `b-50`, folha sem marcação de vinco), 7 sem medida para conferir (outros fornecedores; conferidos visualmente). Nenhum erro de leitura.
+**56 OK numérico**, 11 com diferença (10 explicáveis: alça acima da caixa, parede dupla, tampa sobreposta, linguetas de empilhamento, medida da ficha diferente dos ajustes; 1 real: `b-50`, folha sem marcação de vinco), 9 sem medida para conferir (outros fornecedores e fichas com texto em curvas; conferidos visualmente). Nenhum erro de leitura.
 
 | Arquivo | Ficha | Estilo | Medida | Obs. |
 |---|---|---|---|---|
@@ -110,6 +115,16 @@ O "OK" é um teste numérico. Sempre olhe também as imagens (`shots_batch.py`):
 | b-48.pdf | desconhecida | cartucho | sem medida | escala 1:1 |
 | b-49.pdf | desconhecida | cartucho | OK |  |
 | b-50.pdf | desconhecida | cartucho | diferença |  |
+| p-3dabrasivos.pdf | impressao | rsc-colar | diferença | altura: ajustes da ficha dão ~1460, a medida interna diz 1380 |
+| p-adair.pdf | desconhecida | rsc (sem tampa) | sem medida | texto da ficha em curvas; PDF em tamanho real (1:1 correto) |
+| p-adair2.pdf | desconhecida | rsc (sem tampa) | sem medida | idem |
+| p-adams.pdf | impressao | rsc (sem tampa) | OK |  |
+| p-adilson.pdf | impressao | rsc | OK | campos preenchidos uma linha abaixo; medida solta |
+| p-adilson2.pdf | impressao | rsc | OK | idem |
+| p-agropampa.pdf | impressao | bandeja | OK |  |
+| p-agropampa2.pdf | impressao | cartucho | OK | bandeja com tampa e parede lateral dupla |
+| p-agroserra.pdf | impressao | bandeja | diferença | colunas nos cantos + linguetas de empilhamento (montagem conferida) |
+| p-aireli.pdf | impressao | rsc | OK |  |
 
 ## Antes de publicar
 1. `python3 build.py`

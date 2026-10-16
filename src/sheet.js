@@ -84,7 +84,18 @@ const Sheet = (() => {
       }
     }
     if (!dl) throw err || new Error('Não encontrei a faca no PDF.');
+    // problemas do próprio arquivo, mostrados como aviso no app
+    const problems = [];
+    // letras convertidas em curvas ao exportar (caso real: fichas Adair Andreazza): não há texto para ler
+    if (texts.map(t => t.str).join('').replace(/[^A-Za-zÀ-ú]/g, '').length < 5)
+      problems.push('a ficha não tem texto legível (as letras foram convertidas em curvas ao exportar o PDF), então não deu para ler cliente, produto e medidas');
     if (!info.interna && info.medidaSolta) info.interna = info.medidaSolta;
+    // campo preenchido na linha errada (caso real: ficha Adilson Dalacua, a "Med. Interna" trazia os ajustes
+    // "30 - 494 - 326 - 496 - 325" e a medida 480 X 310 X 252 estava na linha do Produto): usa a medida solta
+    else if (info.medidaSolta && !/\d\s*[xX]\s*\d/.test(info.interna || '')) {
+      problems.push(`os campos da ficha estão fora do lugar (a "Med. Interna" diz "${info.interna}"); usei a medida ${info.medidaSolta} escrita em outra linha`);
+      info.interna = info.medidaSolta;
+    }
     const bw = dl.bbox.x1 - dl.bbox.x0, bh = dl.bbox.y1 - dl.bbox.y0;
     let SX = null, SY = null, source = null;
     // 1) ficha de impressão: soma dos ajustes = largura e altura totais da chapa
@@ -145,7 +156,7 @@ const Sheet = (() => {
     if (!SX) { SX = SY = 72 / 25.4; source = 'tamanho real do PDF'; }
     const mirror = kind === 'tecnica' ? !/extern/i.test(info.vista || 'interna') : /intern/i.test(info.vista || '');
     const fl = flute(info.onda) || flute((info.po || '').split(/\s+/).pop()) || { onda: '?', esp: 3 };
-    return { kind, info, dieline: dl, outlined, SX, SY, scaleSource: source, mirror, flute: fl, page: { w: vec.width, h: vec.height } };
+    return { kind, info, dieline: dl, outlined, SX, SY, scaleSource: source, mirror, flute: fl, page: { w: vec.width, h: vec.height }, problems };
   }
   return { analyze, field, nums };
 })();

@@ -57,6 +57,44 @@ const Styles = (() => {
     const isBody = new Set(det.chain);
     const major = new Set(longIdx.map(i => panels[i]));
     const notes = new Set();
+    const kidsOf = f => tr.order.filter(g => tr.parent[g] === f);
+    const isPar = (f, g) => { const h = model.hinges[tr.via[g]].dir, hp = model.hinges[tr.via[f]].dir; return Math.abs(h[0] * hp[0] + h[1] * hp[1]) > 0.9; };
+    const depth = f => isHoriz(model.hinges[tr.via[f]]) ? F[f].h : F[f].w;   // profundidade da aba (perpendicular ao vinco)
+    const hasHole = f => F[f].holes && F[f].holes.length > 0;
+    // Analisa cada cadeia de abas paralelas presa ao corpo (nível 1 → 2 → 3…) e decide o tipo:
+    //  - 'colar': colarinho de parede dupla. A 1ª faixa dobra 180° para dentro (vinco duplo estreito, ou
+    //    furo de alça na faixa e no painel) e a aba seguinte fecha a tampa por dentro, abaixo do colarinho.
+    //    Caso real: 3D Abrasivos (caixa alta de abrasivo em rolo), furos da alça alinhados pela dobra de 180°.
+    //  - 'plana': a cadeia inteira cabe deitada na metade do vão → é uma aba comum com um vinco a mais (trava do fundo).
+    //    Caso real: caixas de maçã CAT III (Adair), aba do fundo 57 + 93 mm num vão de 310 mm.
+    //  - 'divisoria': a cadeia é bem maior que a metade do vão → sobe por dentro e forma a divisória (b-3, b-22, b-39).
+    const chainKind = new Map(), chains = [];
+    const panelsCyc = det.panels;
+    for (const a of panelsCyc) {
+      const i = panelsCyc.indexOf(a), nb = panelsCyc[(i + 1) % panelsCyc.length] ?? panelsCyc[(i + panelsCyc.length - 1) % panelsCyc.length];
+      const span = F[nb].w;   // vão que a aba atravessa = largura do painel vizinho
+      for (const f1 of kidsOf(a).filter(g => !isBody.has(g) && g !== glue)) {
+        const seq = [f1]; for (let g = f1; ; ) { const n = kidsOf(g).find(k => isPar(g, k)); if (n == null) break; seq.push(n); g = n; }
+        if (seq.length < 2) continue;
+        const t = model.thickness, d = seq.map(depth), total = d.reduce((x, y) => x + y, 0);
+        let kind;
+        if (d[0] < Math.max(5 * t, 15) && seq.length >= 3) kind = { type: 'colar', fold: 2 };                  // vinco duplo: f1 (90) + f2 (90) = 180°
+        else if (hasHole(f1) && hasHole(a) && seq.length >= 2 && d[0] < span * 0.5) kind = { type: 'colar', fold: 1 };   // furo da alça dos dois lados da dobra
+        else if (total <= span * 0.55) kind = { type: 'plana' };
+        else kind = { type: 'divisoria' };
+        chains.push({ seq, kind, d, top: F[f1].c[1] > F[a].c[1] });
+      }
+    }
+    // colarinho vale para o lado todo: faixas do mesmo lado com a mesma altura do colarinho também dobram 180°
+    // (3D Abrasivos: a faixa do painel largo não tem furo nem vinco duplo, só um picote)
+    for (const c of chains) {
+      if (c.kind.type === 'colar') continue;
+      const ref = chains.find(o => o.kind.type === 'colar' && o.top === c.top);
+      if (!ref) continue;
+      const hRef = ref.d.slice(0, ref.kind.fold).reduce((x, y) => x + y, 0);
+      if (Math.abs(c.d[0] - hRef) < Math.max(10, hRef * 0.2)) c.kind = { type: 'colar', fold: 1 };
+    }
+    chains.forEach(c => c.seq.forEach((g, k) => chainKind.set(g, { ...c.kind, pos: k })));
     for (const f of tr.order) {
       if (tr.parent[f] < 0) continue;
       const hid = tr.via[f], par = tr.parent[f], h = model.hinges[hid];
@@ -66,11 +104,22 @@ const Styles = (() => {
       let lvl = 0, a = f; while (a >= 0 && !isBody.has(a)) { a = tr.parent[a]; lvl++; }
       const top = F[f].c[1] > F[a].c[1];
       const base = major.has(a) ? 3 : 2;
-      if (lvl === 1) prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) };
+      const ck = chainKind.get(f);
+      if (ck && ck.type === 'colar') {
+        // colarinho: dobra 180° para dentro; a aba seguinte vira para o centro (−90) e fecha a tampa por dentro
+        const st = base + (top ? 2 : 0);
+        if (ck.pos < ck.fold) prog[hid] = { angle: ck.fold === 2 ? 90 : 180, stage: st - 1 };
+        else if (ck.pos === ck.fold) prog[hid] = { angle: -90, stage: st };
+        else prog[hid] = { angle: 0, stage: st };
+        notes.add('colar');
+      } else if (ck && ck.type === 'plana' && lvl >= 2) prog[hid] = { angle: 0, stage: base + (top ? 2 : 0) };
+      else if (lvl === 1) prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) };
       else {
         const hp = model.hinges[tr.via[par]], diag = Math.abs(h.dir[0]) > 0.15 && Math.abs(h.dir[1]) > 0.15;
         const parallel = Math.abs(h.dir[0] * hp.dir[0] + h.dir[1] * hp.dir[1]) > 0.9;
-        if (diag) prog[hid] = { angle: 180, stage: base + (top ? 2 : 0) - 0.5 };            // fundo automático: a dobra diagonal fica colada por baixo
+        const pk = chainKind.get(par);
+        if (pk && pk.type === 'colar') prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) - 0.5 };   // orelhas da tampa do colarinho
+        else if (diag) prog[hid] = { angle: 180, stage: base + (top ? 2 : 0) - 0.5 };            // fundo automático: a dobra diagonal fica colada por baixo
         else if (parallel && lvl === 2) prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + 1 };   // divisória: sobe por dentro da caixa
         else if (parallel) prog[hid] = { angle: 0, stage: base + (top ? 2 : 0) + 1 };      // continuação da divisória (com as fendas de encaixe)
         else prog[hid] = { angle: 90, stage: base + (top ? 2 : 0) + lvl * 2 };
@@ -80,8 +129,13 @@ const Styles = (() => {
     // fundo primeiro, tampa depois
     const nl = [];
     if (notes.has('divisoria')) nl.push('As abas de baixo com várias dobras foram montadas como divisória interna (sobem por dentro da caixa). Ajuste no editor se a montagem for diferente.');
-    const label = notes.has('divisoria') ? 'Caixa com divisória incorporada' : 'Caixa maleta (FEFCO 0201)';
-    return { style: notes.has('divisoria') ? 'rsc-divisoria' : 'rsc', label, root, orient: 'front', prog, notes: nl };
+    if (notes.has('colar')) nl.push('A faixa com vinco duplo (ou com o furo da alça) dobra 180° para dentro, formando um colarinho de parede dupla; a tampa fecha por dentro, abaixo dele.');
+    const style = notes.has('divisoria') ? 'rsc-divisoria' : notes.has('colar') ? 'rsc-colar' : 'rsc';
+    // abas só de um lado (caixas de maçã Adair/Adams): caixa sem tampa, FEFCO 0200
+    const sides = new Set(det.panels.flatMap(p => kidsOf(p).filter(g => !isBody.has(g) && g !== glue && F[g].area > F[p].area * 0.1).map(g => F[g].c[1] > F[p].c[1])));
+    const label = style === 'rsc-divisoria' ? 'Caixa com divisória incorporada' : style === 'rsc-colar' ? 'Caixa com colarinho e alça'
+      : sides.size === 1 && det.panels.length === 4 ? 'Caixa sem tampa (FEFCO 0200)' : 'Caixa maleta (FEFCO 0201)';
+    return { style, label, root, orient: 'front', prog, notes: nl };
   }
 
   // ---------- caixa maleta com alça (abas superiores em cadeia, sem fundo de abas) ----------
@@ -141,6 +195,20 @@ const Styles = (() => {
       else if (r === 'perp') stage[f] = rel(tr.parent[f]) === 'wall' ? stage[tr.parent[f]] + 1 : stage[tr.parent[f]] - 0.5;  // orelhas dobram antes do painel que as leva
       else stage[f] = Math.max(3, stage[tr.parent[f]]) + 1;
       prog[tr.via[f]] = { angle: 90, stage: stage[f] };
+    }
+    // Orelhas (vinco perpendicular) presas numa parede que já virou 180° (parede dupla) dobram ao contrário:
+    // se a orelha termina fora do fundo, inverte o sentido. Caso real: Agropampa caixa única (bandeja com tampa),
+    // as abas nas pontas da parede lateral interna forram a frente e o fundo por dentro.
+    if (typeof THREE !== 'undefined') {
+      const rb = F[root].bbox, mg = Math.max(F[root].w, F[root].h) * 0.05, v = new THREE.Vector3();
+      const outside = (M, f) => { v.set(F[f].c[0], F[f].c[1], 0).applyMatrix4(M[f]); return v.x < rb[0] - mg || v.x > rb[2] + mg || v.y < rb[1] - mg || v.y > rb[3] + mg; };
+      for (const f of tr.order) {
+        if (tr.parent[f] < 0 || rel(f) !== 'perp' || rel(tr.parent[f]) === 'wall') continue;
+        const p = prog[tr.via[f]];
+        if (!outside(FoldM.poses(model, tr, prog, 1).M, f)) continue;
+        p.angle = -p.angle;
+        if (outside(FoldM.poses(model, tr, prog, 1).M, f)) p.angle = -p.angle;   // não melhorou: volta
+      }
     }
     const hasDouble = tr.order.some(f => tr.parent[f] >= 0 && rel(f) === 'par' && Math.min(F[f].w, F[f].h) < model.thickness * 4);
     // tampa: painel ligado a uma parede, do tamanho do fundo (largura e profundidade parecidas)
@@ -206,6 +274,19 @@ const Styles = (() => {
     }
     return { model, recipe };
   }
-  return { detect, auto, recipeRSC, recipeTray, generic, detectRSC };
+  // Confere a medida interna escrita na ficha com o desenho (só caixas de corpo com 4 paredes).
+  // Nas 47 caixas normais do lote as paredes passam no máximo 17 mm da medida interna (espessura + folga);
+  // a 3D Abrasivos passa 80 mm (ajustes ~1460 × "Med. Interna" 1380): erro da própria ficha → aviso.
+  function checkMeasures(sheet, model, recipe) {
+    const mi = (sheet.info.interna && sheet.info.interna.match(/\d+(?:[.,]\d+)?/g) || []).map(v => parseFloat(v.replace(',', '.')));
+    if (mi.length !== 3 || !/^rsc|^mala/.test(recipe.style)) return [];
+    const det = detectRSC(model); if (!det) return [];
+    const F = model.faces, pw = det.panels.map(p => F[p].w), H = Math.max(...det.panels.map(p => F[p].h));
+    const got = [Math.max(pw[0], pw[1]), Math.min(pw[0], pw[1]), H].sort((a, b) => b - a), exp = mi.slice().sort((a, b) => b - a);
+    const d = Math.max(...got.map((g, i) => Math.abs(g - exp[i])));
+    if (d <= 40) return [];
+    return [`a medida interna escrita na ficha (${exp.join(' x ')}) não bate com o desenho da faca (corpo de ${got.map(Math.round).join(' x ')} mm): diferença de ${Math.round(d)} mm, confira a ficha`];
+  }
+  return { detect, auto, recipeRSC, recipeTray, generic, detectRSC, checkMeasures };
 })();
 if (typeof module !== 'undefined') module.exports = Styles;
